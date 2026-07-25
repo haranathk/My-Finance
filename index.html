@@ -238,15 +238,15 @@
       </div>
       <div class="balance-card">
         <div class="balance-label">Total Balance</div>
-        <div class="balance-amount" id="total-balance">$0.00</div>
+        <div class="balance-amount" id="total-balance">₹0.00</div>
         <div class="balance-row">
           <div class="balance-item">
             <div class="lbl">Income</div>
-            <div class="amt" id="total-income">$0.00</div>
+            <div class="amt" id="total-income">₹0.00</div>
           </div>
           <div class="balance-item">
             <div class="lbl">Expenses</div>
-            <div class="amt" id="total-expense">$0.00</div>
+            <div class="amt" id="total-expense">₹0.00</div>
           </div>
         </div>
       </div>
@@ -254,12 +254,12 @@
         <div class="summary-card income">
           <div class="icon">📈</div>
           <div class="label">This Month</div>
-          <div class="value" id="month-income">$0</div>
+          <div class="value" id="month-income">₹0</div>
         </div>
         <div class="summary-card expense">
           <div class="icon">📉</div>
           <div class="label">This Month</div>
-          <div class="value" id="month-expense">$0</div>
+          <div class="value" id="month-expense">₹0</div>
         </div>
       </div>
       <div class="section-header">
@@ -442,7 +442,13 @@
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return getDefaultData();
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      // If data was explicitly cleared (empty arrays), return empty state
+      if (parsed.accounts && parsed.accounts.length === 0 && 
+          parsed.transactions && parsed.transactions.length === 0) {
+        return parsed;
+      }
+      return parsed;
     } catch (e) { return getDefaultData(); }
   }
 
@@ -500,7 +506,7 @@
   const ACCOUNT_ICONS = { cash: "💵", bank: "🏦", credit: "💳", savings: "🏛️", investment: "📈", other: "📁" };
 
   function uuid() { return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random()*16|0, v = c==="x"?r:(r&0x3|0x8); return v.toString(16); }); }
-  function fmtMoney(n) { return "$" + Math.abs(n).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function fmtMoney(n) { return "₹" + Math.abs(n).toLocaleString("en-IN", {minimumFractionDigits:2, maximumFractionDigits:2}); }
   function fmtDate(d) { const date = new Date(d); return date.toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"}); }
   function getPeriodStart(period) {
     const now = new Date();
@@ -558,7 +564,7 @@
   }
 
   function renderTxList(transactions) {
-    if (!transactions.length) return `<div class="empty-state"><div class="glyph">📋</div><div>No transactions yet</div></div>`;
+    if (!transactions.length) return `<div class="empty-state"><div class="glyph">📋</div><div>No transactions yet.<br>Tap + to add one</div></div>`;
     const groups = {};
     transactions.forEach(t => {
       if (!groups[t.date]) groups[t.date] = [];
@@ -928,7 +934,14 @@
   document.getElementById("btn-clear-all").addEventListener("click", () => {
     showConfirm("Clear All Data", "This will delete all your data. This cannot be undone.", () => {
       localStorage.removeItem(STORAGE_KEY);
-      location.reload();
+      localStorage.removeItem("pocket_expense_dark");
+      // Clear in-memory data
+      data.accounts = [];
+      data.transactions = [];
+      data.budgets = [];
+      saveData();
+      render();
+      showToast("All data cleared!");
     });
   });
 
