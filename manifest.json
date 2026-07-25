@@ -1,11 +1,11 @@
 {
-  "name": "Pocket Expense",
-  "short_name": "PocketExp",
-  "description": "Personal finance tracker - track income, expenses, budgets and accounts",
+  "name": "Finance Tracker",
+  "short_name": "Finance",
+  "description": "Track bank and cash transactions, dashboards, and rental income.",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#F2F2F7",
-  "theme_color": "#34C759",
+  "theme_color": "#10B981",
   "orientation": "portrait",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
