@@ -416,7 +416,7 @@
         <button class="btn-primary" id="btn-import" style="margin-bottom:10px;background:var(--orange);">📥 Import Data</button>
         <button class="btn-delete" id="btn-clear-all">🗑️ Clear All Data</button>
       </div>
-      <input type="file" id="import-file" accept=".json" style="display:none;">
+      <input type="file" id="import-file" accept=".csv,text/csv" style="display:none;">
     </div>
   </div>
 </div>
@@ -788,25 +788,92 @@
     document.body.classList.add("dark");
   }
 
-  document.getElementById("btn-export").addEventListener("click", () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+  function csvEscape(v) {
+    if (v == null) return "";
+    const s = String(v);
+    if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  function exportToCSV() {
+    let csv = "Type,Date,Description,Category,CategoryIcon,Amount,Account,AccountType\n";
+    data.transactions.forEach(t => {
+      const cat = (CATEGORIES[t.type] || []).find(c => c.id === t.category) || { name: t.category, icon: "" };
+      const acc = data.accounts.find(a => a.id === t.accountId) || { name: "Unknown", type: "" };
+      csv += [t.type, t.date, t.desc, cat.name, cat.icon, t.amount, acc.name, acc.type].map(csvEscape).join(",") + "\n";
+    });
+    csv += "\nAccounts\nName,Type,Balance,Icon\n";
+    data.accounts.forEach(a => {
+      csv += [a.name, a.type, a.balance, a.icon].map(csvEscape).join(",") + "\n";
+    });
+    csv += "\nBudgets\nCategory,Limit,Spent\n";
+    data.budgets.forEach(b => {
+      csv += [b.category, b.limit, b.spent].map(csvEscape).join(",") + "\n";
+    });
+    const blob = new Blob([csv], {type: "text/csv"});
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "pocket_expense_backup.json"; a.click(); URL.revokeObjectURL(url);
-    showToast("Data exported!");
-  });
+    const a = document.createElement("a"); a.href = url; a.download = "pocket_expense.csv"; a.click(); URL.revokeObjectURL(url);
+    showToast("Data exported to CSV!");
+  }
+
+  document.getElementById("btn-export").addEventListener("click", exportToCSV);
+
+  function parseCSV(text) {
+    const rows = [];
+    let row = [], field = "", inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+        } else field += c;
+      } else {
+        if (c === '"') inQuotes = true;
+        else if (c === ",") { row.push(field); field = ""; }
+        else if (c === "\n" || c === "\r") {
+          if (c === "\r" && text[i + 1] === "\n") i++;
+          row.push(field); field = ""; rows.push(row); row = [];
+        } else field += c;
+      }
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.length > 1 || (r.length === 1 && r[0] !== ""));
+  }
+
+  function importFromCSV(text) {
+    const rows = parseCSV(text);
+    let section = "";
+    let importedTx = 0, importedAcc = 0;
+    rows.forEach(r => {
+      if (r[0] === "Type") { section = "transactions"; return; }
+      if (r[0] === "Accounts") { section = "accounts"; return; }
+      if (r[0] === "Budgets") { section = "budgets"; return; }
+      if (!section || r.length < 2) return;
+      if (section === "transactions" && r[0]) {
+        const acc = data.accounts.find(a => a.name === r[6]) || data.accounts[0];
+        const catObj = (CATEGORIES[r[0]] || []).find(c => c.name === r[3]);
+        data.transactions.push({
+          id: uuid(), type: r[0], date: r[1] || new Date().toISOString().split("T")[0],
+          desc: r[2] || "", category: catObj ? catObj.id : "other",
+          amount: parseFloat(r[5]) || 0, accountId: acc ? acc.id : data.accounts[0].id
+        });
+        if (acc) acc.balance += r[0] === "income" ? (parseFloat(r[5]) || 0) : -(parseFloat(r[5]) || 0);
+        importedTx++;
+      }
+      if (section === "accounts" && r[0] && !data.accounts.find(a => a.name === r[0])) {
+        data.accounts.push({ id: uuid(), name: r[0], type: r[1] || "other", balance: parseFloat(r[2]) || 0, icon: r[3] || "📁" });
+        importedAcc++;
+      }
+    });
+    saveData(); render();
+    showToast(`Imported ${importedTx} transactions, ${importedAcc} accounts`);
+  }
 
   document.getElementById("btn-import").addEventListener("click", () => document.getElementById("import-file").click());
   document.getElementById("import-file").addEventListener("change", e => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const imported = JSON.parse(reader.result);
-        if (imported.accounts && imported.transactions) {
-          Object.assign(data, imported); saveData(); render(); showToast("Data imported!");
-        } else { showToast("Invalid file format"); }
-      } catch (err) { showToast("Failed to import"); }
-    };
+    reader.onload = () => { try { importFromCSV(reader.result); } catch (err) { showToast("Failed to import CSV"); } };
     reader.readAsText(file);
     e.target.value = "";
   });
