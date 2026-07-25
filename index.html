@@ -796,19 +796,29 @@
   }
 
   function exportToCSV() {
-    let csv = "Type,Date,Description,Category,CategoryIcon,Amount,Account,AccountType\n";
+    const header = ["Bank","Date","Description","Ref","Debit","Credit","Cat","Subcat","Key","Photo","File","Rate","Weight"];
+    let csv = header.join(",") + "\n";
     data.transactions.forEach(t => {
       const cat = (CATEGORIES[t.type] || []).find(c => c.id === t.category) || { name: t.category, icon: "" };
       const acc = data.accounts.find(a => a.id === t.accountId) || { name: "Unknown", type: "" };
-      csv += [t.type, t.date, t.desc, cat.name, cat.icon, t.amount, acc.name, acc.type].map(csvEscape).join(",") + "\n";
-    });
-    csv += "\nAccounts\nName,Type,Balance,Icon\n";
-    data.accounts.forEach(a => {
-      csv += [a.name, a.type, a.balance, a.icon].map(csvEscape).join(",") + "\n";
-    });
-    csv += "\nBudgets\nCategory,Limit,Spent\n";
-    data.budgets.forEach(b => {
-      csv += [b.category, b.limit, b.spent].map(csvEscape).join(",") + "\n";
+      const debit = t.type === "expense" ? t.amount : "";
+      const credit = t.type === "income" ? t.amount : "";
+      const row = [
+        acc.name,              // Bank
+        t.date,                // Date
+        t.desc || cat.name,    // Description
+        t.id.substring(0,8),   // Ref
+        debit,                 // Debit
+        credit,                // Credit
+        cat.name,              // Cat
+        t.type,                // Subcat
+        t.category,            // Key
+        "",                    // Photo
+        "",                    // File
+        "",                    // Rate
+        ""                     // Weight
+      ];
+      csv += row.map(csvEscape).join(",") + "\n";
     });
     const blob = new Blob([csv], {type: "text/csv"});
     const url = URL.createObjectURL(blob);
@@ -842,31 +852,68 @@
 
   function importFromCSV(text) {
     const rows = parseCSV(text);
-    let section = "";
-    let importedTx = 0, importedAcc = 0;
-    rows.forEach(r => {
-      if (r[0] === "Type") { section = "transactions"; return; }
-      if (r[0] === "Accounts") { section = "accounts"; return; }
-      if (r[0] === "Budgets") { section = "budgets"; return; }
-      if (!section || r.length < 2) return;
-      if (section === "transactions" && r[0]) {
-        const acc = data.accounts.find(a => a.name === r[6]) || data.accounts[0];
-        const catObj = (CATEGORIES[r[0]] || []).find(c => c.name === r[3]);
-        data.transactions.push({
-          id: uuid(), type: r[0], date: r[1] || new Date().toISOString().split("T")[0],
-          desc: r[2] || "", category: catObj ? catObj.id : "other",
-          amount: parseFloat(r[5]) || 0, accountId: acc ? acc.id : data.accounts[0].id
-        });
-        if (acc) acc.balance += r[0] === "income" ? (parseFloat(r[5]) || 0) : -(parseFloat(r[5]) || 0);
-        importedTx++;
+    if (rows.length < 2) { showToast("No data found in CSV"); return; }
+
+    const header = rows[0].map(h => h.trim().toLowerCase());
+    const idx = name => header.indexOf(name.toLowerCase());
+
+    const bankIdx = idx("bank");
+    const dateIdx = idx("date");
+    const descIdx = idx("description");
+    const refIdx = idx("ref");
+    const debitIdx = idx("debit");
+    const creditIdx = idx("credit");
+    const catIdx = idx("cat");
+    const subcatIdx = idx("subcat");
+    const keyIdx = idx("key");
+
+    if (bankIdx < 0 || dateIdx < 0) { showToast("Invalid CSV format. Need Bank and Date columns."); return; }
+
+    let importedTx = 0, newAccounts = 0;
+
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.length < 3) continue;
+
+      const bankName = r[bankIdx] || "Unknown";
+      const dateVal = r[dateIdx] || new Date().toISOString().split("T")[0];
+      const desc = r[descIdx] || "";
+      const debit = parseFloat(r[debitIdx]) || 0;
+      const credit = parseFloat(r[creditIdx]) || 0;
+      const catName = r[catIdx] || "";
+      const subcat = r[subcatIdx] || "";
+      const key = r[keyIdx] || "";
+
+      if (!debit && !credit) continue;
+
+      const type = credit > 0 ? "income" : "expense";
+      const amount = credit > 0 ? credit : debit;
+
+      // Find or create account
+      let acc = data.accounts.find(a => a.name.toLowerCase() === bankName.toLowerCase());
+      if (!acc) {
+        acc = { id: uuid(), name: bankName, type: "bank", balance: 0, icon: "🏦" };
+        data.accounts.push(acc);
+        newAccounts++;
       }
-      if (section === "accounts" && r[0] && !data.accounts.find(a => a.name === r[0])) {
-        data.accounts.push({ id: uuid(), name: r[0], type: r[1] || "other", balance: parseFloat(r[2]) || 0, icon: r[3] || "📁" });
-        importedAcc++;
-      }
-    });
+
+      // Map category
+      let category = "other";
+      const catObj = (CATEGORIES[type] || []).find(c => c.name.toLowerCase() === (catName || "").toLowerCase());
+      if (catObj) category = catObj.id;
+      else if (key && CATEGORIES[type].find(c => c.id === key)) category = key;
+
+      data.transactions.push({
+        id: uuid(), type, date: dateVal, desc, category,
+        amount, accountId: acc.id
+      });
+
+      acc.balance += type === "income" ? amount : -amount;
+      importedTx++;
+    }
+
     saveData(); render();
-    showToast(`Imported ${importedTx} transactions, ${importedAcc} accounts`);
+    showToast(`Imported ${importedTx} transactions, ${newAccounts} new accounts`);
   }
 
   document.getElementById("btn-import").addEventListener("click", () => document.getElementById("import-file").click());
