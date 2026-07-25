@@ -87,6 +87,7 @@
   const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   function fmtDMY(iso) { const d = parseISO(iso); return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`; }
   function fmtDMon(iso) { const d = parseISO(iso); return `${pad2(d.getDate())} ${MONTHS[d.getMonth()]}`; }
+  function fmtDMonYY(iso) { const d = parseISO(iso); return `${pad2(d.getDate())}-${MONTHS[d.getMonth()]}-${String(d.getFullYear()).slice(-2)}`; }
 
   function formatINR(n) {
     const v = Math.round(n || 0);
@@ -322,23 +323,20 @@
   const txnExpanded = { years: new Set(), months: new Set(), initialized: false };
 
   function txnRowHtml(t) {
-    const isCredit = (parseFloat(t.credit) || 0) > 0;
-    const amt = isCredit ? parseFloat(t.credit) : parseFloat(t.debit) || 0;
-    const color = categoryColor(t.cat);
-    const subtitle = [t.bank, fmtDMY(t.date), t.subcat || t.cat].filter(Boolean).join(" • ");
+    const credit = parseFloat(t.credit) || 0;
+    const debit = parseFloat(t.debit) || 0;
     return `
-      <div class="txn-row" data-open-edit="${t.id}">
-        <div class="cat-bubble" style="background:${hexToRgba(color, 0.18)};">${categoryIcon(t.cat)}</div>
-        <div class="txn-main">
-          <div class="txn-desc">${escapeHtml(t.description || "(no description)")}</div>
-          <div class="txn-sub">${escapeHtml(subtitle)}</div>
-        </div>
-        <div class="txn-amt" style="color:${isCredit ? "var(--green)" : "var(--red)"};">${isCredit ? "+" : "-"}${formatINR(amt)}</div>
+      <div class="txn-table-row" data-open-edit="${t.id}">
+        <div class="txn-date">${fmtDMonYY(t.date)}</div>
+        <div class="txn-bank">${escapeHtml(t.bank || "—")}</div>
+        <div class="txn-cell-desc">${escapeHtml(t.description || "(no description)")}</div>
+        <div class="txn-credit">${credit > 0 ? formatINR(credit) : ""}</div>
+        <div class="txn-debit">${debit > 0 ? formatINR(debit) : ""}</div>
       </div>`;
   }
 
   function totalsPillHtml(credit, debit) {
-    return `<span class="grp-totals"><span class="t-credit">+${formatINR(credit)}</span><span class="t-debit">-${formatINR(debit)}</span></span>`;
+    return `<span class="grp-totals"><span class="t-credit">${formatINR(credit)}</span><span class="t-debit">${formatINR(debit)}</span></span>`;
   }
 
   function renderTransactionsGrouped(list) {
@@ -387,6 +385,14 @@
             </div>`;
           if (monthOpen) {
             info.txns.sort((a, b) => parseISO(b.date) - parseISO(a.date));
+            html += `
+              <div class="txn-col-hdr">
+                <div class="txn-date">Date</div>
+                <div class="txn-bank">Bank</div>
+                <div class="txn-cell-desc">Description</div>
+                <div class="txn-credit">Credit</div>
+                <div class="txn-debit">Debit</div>
+              </div>`;
             html += info.txns.map(txnRowHtml).join("");
           }
         });
@@ -424,7 +430,14 @@
     if (q) {
       // While actively searching, show a flat list so matches are never hidden inside a collapsed section.
       list.sort((a, b) => parseISO(b.date) - parseISO(a.date));
-      html = list.map(txnRowHtml).join("");
+      html = `
+        <div class="txn-col-hdr">
+          <div class="txn-date">Date</div>
+          <div class="txn-bank">Bank</div>
+          <div class="txn-cell-desc">Description</div>
+          <div class="txn-credit">Credit</div>
+          <div class="txn-debit">Debit</div>
+        </div>` + list.map(txnRowHtml).join("");
     } else {
       html = renderTransactionsGrouped(list);
     }
@@ -443,8 +456,14 @@
     });
     container.querySelectorAll("[data-toggle-month]").forEach((el) => {
       el.addEventListener("click", () => {
-        const key = el.dataset.toggleMonth;
-        if (txnExpanded.months.has(key)) txnExpanded.months.delete(key); else txnExpanded.months.add(key);
+        const key = el.dataset.toggleMonth; // "year-month"
+        const year = key.split("-")[0];
+        const wasOpen = txnExpanded.months.has(key);
+        // Accordion: closing this month's siblings in the same year first.
+        Array.from(txnExpanded.months).forEach((k) => {
+          if (k.split("-")[0] === year) txnExpanded.months.delete(k);
+        });
+        if (!wasOpen) txnExpanded.months.add(key);
         renderTransactions();
       });
     });

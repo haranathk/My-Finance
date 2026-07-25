@@ -82,6 +82,15 @@
   .search-bar input{ border:none; background:none; outline:none; flex:1; font-size:15px; color:var(--text);}
 
   .txn-row{ display:flex; align-items:center; gap:12px; padding:9px 16px; cursor:pointer; }
+  .txn-table-row{ display:flex; align-items:center; gap:6px; padding:10px 12px; cursor:pointer; border-bottom:0.5px solid var(--border); }
+  .txn-table-row:active{ background:rgba(142,142,147,0.08); }
+  .txn-col-hdr{ display:flex; align-items:center; gap:6px; padding:6px 12px 4px; }
+  .txn-col-hdr > div{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.3px; color:var(--secondary); font-weight:600; }
+  .txn-date{ width:60px; flex-shrink:0; font-size:12px; white-space:nowrap; }
+  .txn-bank{ width:52px; flex-shrink:0; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--secondary); }
+  .txn-cell-desc{ flex:1; min-width:0; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .txn-credit{ width:64px; flex-shrink:0; text-align:right; font-size:12.5px; font-weight:700; color:var(--green); }
+  .txn-debit{ width:64px; flex-shrink:0; text-align:right; font-size:12.5px; font-weight:700; color:var(--red); }
   .grp-header{ display:flex; align-items:center; gap:8px; padding:11px 16px; cursor:pointer; background:rgba(142,142,147,0.06); }
   .grp-header.year-hdr{ font-weight:700; }
   .grp-header.month-hdr{ padding-left:30px; background:rgba(142,142,147,0.03); font-weight:600; }
