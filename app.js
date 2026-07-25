@@ -860,7 +860,7 @@
   // ---------- Service worker ----------
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").then((reg) => {
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
         reg.update();
         reg.addEventListener("updatefound", () => {
           const newWorker = reg.installing;
@@ -868,6 +868,12 @@
           newWorker.addEventListener("statechange", () => {
             if (newWorker.state === "activated") window.location.reload();
           });
+        });
+        // Re-check for a newer version every time the app is opened or
+        // brought back to the foreground (e.g. reopening from the home
+        // screen), not just on first load.
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") reg.update();
         });
       }).catch((e) => console.log("SW registration failed", e));
     });
