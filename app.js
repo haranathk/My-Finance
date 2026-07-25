@@ -325,13 +325,14 @@
   function txnRowHtml(t) {
     const credit = parseFloat(t.credit) || 0;
     const debit = parseFloat(t.debit) || 0;
+    const isCredit = credit > 0;
+    const amt = isCredit ? credit : debit;
     return `
       <div class="txn-table-row" data-open-edit="${t.id}">
         <div class="txn-date">${fmtDMonYY(t.date)}</div>
         <div class="txn-bank">${escapeHtml(t.bank || "—")}</div>
         <div class="txn-cell-desc">${escapeHtml(t.description || "(no description)")}</div>
-        <div class="txn-credit">${credit > 0 ? formatINR(credit) : ""}</div>
-        <div class="txn-debit">${debit > 0 ? formatINR(debit) : ""}</div>
+        <div class="txn-amount" style="color:${isCredit ? "var(--green)" : "var(--red)"};">${formatINR(amt)}</div>
       </div>`;
   }
 
@@ -378,8 +379,7 @@
           const monthOpen = txnExpanded.months.has(monthKey);
           const info = years[y].months[m];
           html += `
-            <div class="grp-header month-hdr" data-toggle-month="${monthKey}">
-              <span class="chev">${monthOpen ? "▾" : "▸"}</span>
+            <div class="grp-header month-hdr ${monthOpen ? "is-open" : ""}" data-toggle-month="${monthKey}">
               <span class="grp-title">${MONTHS_FULL[m]}</span>
               ${totalsPillHtml(info.credit, info.debit)}
             </div>`;
@@ -390,8 +390,7 @@
                 <div class="txn-date">Date</div>
                 <div class="txn-bank">Bank</div>
                 <div class="txn-cell-desc">Description</div>
-                <div class="txn-credit">Credit</div>
-                <div class="txn-debit">Debit</div>
+                <div class="txn-amount">Amount</div>
               </div>`;
             html += info.txns.map(txnRowHtml).join("");
           }
@@ -416,13 +415,11 @@
 
     const container = document.getElementById("txn-list");
     if (state.txns.length === 0) {
-      container.innerHTML = `<div class="empty-state"><div class="glyph">💳</div><div>No transactions yet. Tap + to add one.</div></div><button class="fab" id="btn-add-txn">➕</button>`;
-      wireAddButton();
+      container.innerHTML = `<div class="empty-state"><div class="glyph">💳</div><div>No transactions yet. Tap + to add one.</div></div>`;
       return;
     }
     if (list.length === 0) {
-      container.innerHTML = `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions match your search.</div></div><button class="fab" id="btn-add-txn">➕</button>`;
-      wireAddButton();
+      container.innerHTML = `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions match your search.</div></div>`;
       return;
     }
 
@@ -435,13 +432,11 @@
           <div class="txn-date">Date</div>
           <div class="txn-bank">Bank</div>
           <div class="txn-cell-desc">Description</div>
-          <div class="txn-credit">Credit</div>
-          <div class="txn-debit">Debit</div>
+          <div class="txn-amount">Amount</div>
         </div>` + list.map(txnRowHtml).join("");
     } else {
       html = renderTransactionsGrouped(list);
     }
-    html += `<button class="fab" id="btn-add-txn">➕</button>`;
     container.innerHTML = html;
 
     container.querySelectorAll("[data-open-edit]").forEach((el) => {
@@ -467,13 +462,9 @@
         renderTransactions();
       });
     });
-    wireAddButton();
   }
 
-  function wireAddButton() {
-    const btn = document.getElementById("btn-add-txn");
-    if (btn) btn.addEventListener("click", () => openTxnSheet(null));
-  }
+  document.getElementById("btn-add-txn").addEventListener("click", () => openTxnSheet(null));
 
   document.getElementById("txn-search").addEventListener("input", (e) => {
     state.txnSearch = e.target.value;

@@ -82,18 +82,18 @@
   .search-bar input{ border:none; background:none; outline:none; flex:1; font-size:15px; color:var(--text);}
 
   .txn-row{ display:flex; align-items:center; gap:12px; padding:9px 16px; cursor:pointer; }
-  .txn-table-row{ display:flex; align-items:center; gap:6px; padding:10px 12px; cursor:pointer; border-bottom:0.5px solid var(--border); }
+  .txn-table-row{ display:flex; align-items:center; gap:6px; padding:10px 12px 10px 30px; cursor:pointer; border-bottom:0.5px solid var(--border); }
   .txn-table-row:active{ background:rgba(142,142,147,0.08); }
-  .txn-col-hdr{ display:flex; align-items:center; gap:6px; padding:6px 12px 4px; }
+  .txn-col-hdr{ display:flex; align-items:center; gap:6px; padding:6px 12px 4px 30px; }
   .txn-col-hdr > div{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.3px; color:var(--secondary); font-weight:600; }
   .txn-date{ width:60px; flex-shrink:0; font-size:12px; white-space:nowrap; }
   .txn-bank{ width:52px; flex-shrink:0; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--secondary); }
   .txn-cell-desc{ flex:1; min-width:0; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .txn-credit{ width:64px; flex-shrink:0; text-align:right; font-size:12.5px; font-weight:700; color:var(--green); }
-  .txn-debit{ width:64px; flex-shrink:0; text-align:right; font-size:12.5px; font-weight:700; color:var(--red); }
+  .txn-amount{ width:84px; flex-shrink:0; text-align:right; font-size:12.5px; font-weight:700; }
   .grp-header{ display:flex; align-items:center; gap:8px; padding:11px 16px; cursor:pointer; background:rgba(142,142,147,0.06); }
   .grp-header.year-hdr{ font-weight:700; }
   .grp-header.month-hdr{ padding-left:30px; background:rgba(142,142,147,0.03); font-weight:600; }
+  .grp-header.month-hdr.is-open{ background:rgba(16,185,129,0.08); }
   .grp-header .chev{ color:var(--secondary); font-size:12px; width:12px; flex-shrink:0; }
   .grp-header .grp-title{ flex:1; font-size:14.5px; }
   .grp-totals{ display:flex; gap:8px; font-size:12.5px; font-weight:600; flex-shrink:0; }
@@ -107,7 +107,7 @@
   .empty-state{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; color:var(--secondary); text-align:center; gap:10px; }
   .empty-state .glyph{ font-size:40px; opacity:0.6; }
 
-  .fab{ position:absolute; right:18px; bottom:calc(84px + env(safe-area-inset-bottom)); width:52px; height:52px; border-radius:50%; background:var(--green); color:#fff; border:none; font-size:26px; box-shadow:0 3px 10px rgba(0,0,0,0.25); cursor:pointer; z-index:5;}
+  .fab{ position:fixed; right:calc(max(18px, (100vw - 600px)/2 + 18px)); bottom:calc(84px + env(safe-area-inset-bottom)); width:52px; height:52px; border-radius:50%; background:var(--green); color:#fff; border:none; font-size:26px; box-shadow:0 3px 10px rgba(0,0,0,0.25); cursor:pointer; z-index:20;}
 
   .tenant-card{ background:var(--card); border-radius:14px; padding:12px 14px; margin:0 16px 10px; cursor:pointer; }
   .tenant-card .row1{ display:flex; justify-content:space-between; margin-bottom:6px; }
@@ -208,9 +208,8 @@
       <div class="topbar"><div class="page-title">Transactions</div></div>
       <div class="search-bar"><span>🔍</span><input type="text" id="txn-search" placeholder="Search description, ref, bank, category"></div>
     </div>
-    <div class="screen-body" id="txn-list" style="position:relative;">
-      <button class="fab" id="btn-add-txn">➕</button>
-    </div>
+    <div class="screen-body" id="txn-list"></div>
+    <button class="fab" id="btn-add-txn">➕</button>
   </div>
 
   <!-- RENTALS -->
