@@ -82,6 +82,14 @@
   .search-bar input{ border:none; background:none; outline:none; flex:1; font-size:15px; color:var(--text);}
 
   .txn-row{ display:flex; align-items:center; gap:12px; padding:9px 16px; cursor:pointer; }
+  .grp-header{ display:flex; align-items:center; gap:8px; padding:11px 16px; cursor:pointer; background:rgba(142,142,147,0.06); }
+  .grp-header.year-hdr{ font-weight:700; }
+  .grp-header.month-hdr{ padding-left:30px; background:rgba(142,142,147,0.03); font-weight:600; }
+  .grp-header .chev{ color:var(--secondary); font-size:12px; width:12px; flex-shrink:0; }
+  .grp-header .grp-title{ flex:1; font-size:14.5px; }
+  .grp-totals{ display:flex; gap:8px; font-size:12.5px; font-weight:600; flex-shrink:0; }
+  .grp-totals .t-credit{ color:var(--green); }
+  .grp-totals .t-debit{ color:var(--red); }
   .txn-main{ flex:1; min-width:0; }
   .txn-desc{ font-size:15px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .txn-sub{ font-size:12.5px; color:var(--secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px; }

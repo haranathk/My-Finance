@@ -317,6 +317,84 @@
   }
 
   // ================= TRANSACTIONS =================
+  // Tracks which year/month sections are expanded. Populated with sensible
+  // defaults (most recent year + month open) the first time we have data.
+  const txnExpanded = { years: new Set(), months: new Set(), initialized: false };
+
+  function txnRowHtml(t) {
+    const isCredit = (parseFloat(t.credit) || 0) > 0;
+    const amt = isCredit ? parseFloat(t.credit) : parseFloat(t.debit) || 0;
+    const color = categoryColor(t.cat);
+    const subtitle = [t.bank, fmtDMY(t.date), t.subcat || t.cat].filter(Boolean).join(" • ");
+    return `
+      <div class="txn-row" data-open-edit="${t.id}">
+        <div class="cat-bubble" style="background:${hexToRgba(color, 0.18)};">${categoryIcon(t.cat)}</div>
+        <div class="txn-main">
+          <div class="txn-desc">${escapeHtml(t.description || "(no description)")}</div>
+          <div class="txn-sub">${escapeHtml(subtitle)}</div>
+        </div>
+        <div class="txn-amt" style="color:${isCredit ? "var(--green)" : "var(--red)"};">${isCredit ? "+" : "-"}${formatINR(amt)}</div>
+      </div>`;
+  }
+
+  function totalsPillHtml(credit, debit) {
+    return `<span class="grp-totals"><span class="t-credit">+${formatINR(credit)}</span><span class="t-debit">-${formatINR(debit)}</span></span>`;
+  }
+
+  function renderTransactionsGrouped(list) {
+    // Build year -> month -> txns[], plus running totals at each level.
+    const years = {};
+    list.forEach((t) => {
+      const d = parseISO(t.date);
+      const y = d.getFullYear(), m = d.getMonth();
+      if (!years[y]) years[y] = { credit: 0, debit: 0, months: {} };
+      if (!years[y].months[m]) years[y].months[m] = { credit: 0, debit: 0, txns: [] };
+      const credit = parseFloat(t.credit) || 0, debit = parseFloat(t.debit) || 0;
+      years[y].credit += credit; years[y].debit += debit;
+      years[y].months[m].credit += credit; years[y].months[m].debit += debit;
+      years[y].months[m].txns.push(t);
+    });
+    const yearKeys = Object.keys(years).map(Number).sort((a, b) => b - a);
+
+    if (!txnExpanded.initialized && yearKeys.length) {
+      const topYear = yearKeys[0];
+      txnExpanded.years.add(topYear);
+      const monthKeys = Object.keys(years[topYear].months).map(Number).sort((a, b) => b - a);
+      if (monthKeys.length) txnExpanded.months.add(`${topYear}-${monthKeys[0]}`);
+      txnExpanded.initialized = true;
+    }
+
+    let html = "";
+    yearKeys.forEach((y) => {
+      const yearOpen = txnExpanded.years.has(y);
+      html += `
+        <div class="grp-header year-hdr" data-toggle-year="${y}">
+          <span class="chev">${yearOpen ? "▾" : "▸"}</span>
+          <span class="grp-title">${y}</span>
+          ${totalsPillHtml(years[y].credit, years[y].debit)}
+        </div>`;
+      if (yearOpen) {
+        const monthKeys = Object.keys(years[y].months).map(Number).sort((a, b) => b - a);
+        monthKeys.forEach((m) => {
+          const monthKey = `${y}-${m}`;
+          const monthOpen = txnExpanded.months.has(monthKey);
+          const info = years[y].months[m];
+          html += `
+            <div class="grp-header month-hdr" data-toggle-month="${monthKey}">
+              <span class="chev">${monthOpen ? "▾" : "▸"}</span>
+              <span class="grp-title">${MONTHS_FULL[m]}</span>
+              ${totalsPillHtml(info.credit, info.debit)}
+            </div>`;
+          if (monthOpen) {
+            info.txns.sort((a, b) => parseISO(b.date) - parseISO(a.date));
+            html += info.txns.map(txnRowHtml).join("");
+          }
+        });
+      }
+    });
+    return html;
+  }
+
   function renderTransactions() {
     const q = state.txnSearch.trim().toLowerCase();
     let list = state.txns.slice();
@@ -329,7 +407,6 @@
         (t.subcat || "").toLowerCase().includes(q)
       );
     }
-    list.sort((a, b) => parseISO(b.date) - parseISO(a.date));
 
     const container = document.getElementById("txn-list");
     if (state.txns.length === 0) {
@@ -343,33 +420,33 @@
       return;
     }
 
-    let html = "";
-    let lastMonthKey = null;
-    list.forEach((t) => {
-      const d = parseISO(t.date);
-      const monthKey = `${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}`;
-      if (monthKey !== lastMonthKey) {
-        html += `<div class="section-label">${escapeHtml(monthKey)}</div>`;
-        lastMonthKey = monthKey;
-      }
-      const isCredit = (parseFloat(t.credit) || 0) > 0;
-      const amt = isCredit ? parseFloat(t.credit) : parseFloat(t.debit) || 0;
-      const color = categoryColor(t.cat);
-      const subtitle = [t.bank, fmtDMY(t.date), t.subcat || t.cat].filter(Boolean).join(" • ");
-      html += `
-        <div class="txn-row" data-open-edit="${t.id}">
-          <div class="cat-bubble" style="background:${hexToRgba(color, 0.18)};">${categoryIcon(t.cat)}</div>
-          <div class="txn-main">
-            <div class="txn-desc">${escapeHtml(t.description || "(no description)")}</div>
-            <div class="txn-sub">${escapeHtml(subtitle)}</div>
-          </div>
-          <div class="txn-amt" style="color:${isCredit ? "var(--green)" : "var(--red)"};">${isCredit ? "+" : "-"}${formatINR(amt)}</div>
-        </div>`;
-    });
+    let html;
+    if (q) {
+      // While actively searching, show a flat list so matches are never hidden inside a collapsed section.
+      list.sort((a, b) => parseISO(b.date) - parseISO(a.date));
+      html = list.map(txnRowHtml).join("");
+    } else {
+      html = renderTransactionsGrouped(list);
+    }
     html += `<button class="fab" id="btn-add-txn">➕</button>`;
     container.innerHTML = html;
+
     container.querySelectorAll("[data-open-edit]").forEach((el) => {
       el.addEventListener("click", () => openTxnSheet(el.dataset.openEdit));
+    });
+    container.querySelectorAll("[data-toggle-year]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const y = Number(el.dataset.toggleYear);
+        if (txnExpanded.years.has(y)) txnExpanded.years.delete(y); else txnExpanded.years.add(y);
+        renderTransactions();
+      });
+    });
+    container.querySelectorAll("[data-toggle-month]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const key = el.dataset.toggleMonth;
+        if (txnExpanded.months.has(key)) txnExpanded.months.delete(key); else txnExpanded.months.add(key);
+        renderTransactions();
+      });
     });
     wireAddButton();
   }
