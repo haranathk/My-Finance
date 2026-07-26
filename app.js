@@ -702,7 +702,7 @@
     sheet.querySelector('[data-action="save"]').addEventListener("click", () => {
       const desc = document.getElementById("input-desc").value.trim();
       const dateVal = document.getElementById("input-date").value;
-      const amountVal = parseFloat(document.getElementById("input-amount").value) || 0;
+      const amountVal = parseAmount(document.getElementById("input-amount").value);
       if (!desc) { showToast("Please enter a description"); return; }
       if (!dateVal) { showToast("Please choose a date"); return; }
       if (amountVal <= 0) { showToast("Please enter an amount"); return; }
@@ -721,8 +721,8 @@
         key: document.getElementById("input-key").value.trim(),
         photoData: tempPhotoData,
         file: document.getElementById("input-file").value.trim(),
-        rate: parseFloat(document.getElementById("input-rate").value) || "",
-        weight: parseFloat(document.getElementById("input-weight").value) || "",
+        rate: parseAmount(document.getElementById("input-rate").value) || "",
+        weight: parseAmount(document.getElementById("input-weight").value) || "",
       };
 
       if (existing) {
@@ -920,12 +920,19 @@
           const r = rows[i];
           const dateVal = parseFlexibleDate(iDate >= 0 ? r[iDate] : "");
           const desc = iDesc >= 0 ? (r[iDesc] || "").trim() : "";
-          if (!dateVal || !desc) continue;
-          const debit = iDebit >= 0 ? (parseFloat(r[iDebit]) || 0) : 0;
-          const credit = iCredit >= 0 ? (parseFloat(r[iCredit]) || 0) : 0;
+          if (!dateVal) continue;  // Only skip if date is missing
+          function parseAmount(val) {
+            if (!val) return 0;
+            // Remove commas, currency symbols, and whitespace
+            const cleaned = String(val).replace(/[₹,$,\s]/g, "").trim();
+            const num = parseFloat(cleaned);
+            return isNaN(num) ? 0 : num;
+          }
+          const debit = iDebit >= 0 ? parseAmount(r[iDebit]) : 0;
+          const credit = iCredit >= 0 ? parseAmount(r[iCredit]) : 0;
           const bank = iBank >= 0 ? (r[iBank] || "").trim() : "";
           const ref = iRef >= 0 ? (r[iRef] || "").trim() : "";
-          const sig = `${dateVal}|${desc}|${debit}|${credit}|${ref}|${bank}`;
+          const sig = `${dateVal}|${desc || "(no desc)"}|${debit}|${credit}|${ref}|${bank}`;
           if (existingSignatures.has(sig)) { skipped++; continue; }
           existingSignatures.add(sig);
           state.txns.push({
@@ -938,8 +945,8 @@
             key: iKey >= 0 ? (r[iKey] || "").trim() : "",
             photoData: iPhoto >= 0 && r[iPhoto] && r[iPhoto].startsWith("data:") ? r[iPhoto] : null,
             file: iFile >= 0 ? (r[iFile] || "").trim() : "",
-            rate: iRate >= 0 ? (parseFloat(r[iRate]) || "") : "",
-            weight: iWeight >= 0 ? (parseFloat(r[iWeight]) || "") : "",
+            rate: iRate >= 0 ? parseAmount(r[iRate]) || "" : "",
+            weight: iWeight >= 0 ? parseAmount(r[iWeight]) || "" : "",
           });
           added++;
         }
