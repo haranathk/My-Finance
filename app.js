@@ -65,6 +65,7 @@
     dashboard: { periodType: "monthly", anchor: new Date() },
     rentals: { year: new Date().getFullYear() },
     txnSearch: "",
+    txnFilters: { bank: "", cat: "", subcat: "" },
     editingId: null,
   };
 
@@ -400,9 +401,79 @@
     return html;
   }
 
+  function renderYearOnlyGrouped(list) {
+    const years = {};
+    list.forEach((t) => {
+      const y = parseISO(t.date).getFullYear();
+      if (!years[y]) years[y] = { credit: 0, debit: 0, txns: [] };
+      years[y].credit += parseFloat(t.credit) || 0;
+      years[y].debit += parseFloat(t.debit) || 0;
+      years[y].txns.push(t);
+    });
+    const yearKeys = Object.keys(years).map(Number).sort((a, b) => b - a);
+    if (!txnExpanded.initialized && yearKeys.length) {
+      txnExpanded.years.add(yearKeys[0]);
+      txnExpanded.initialized = true;
+    }
+    let html = "";
+    yearKeys.forEach((y) => {
+      const yearOpen = txnExpanded.years.has(y);
+      html += `
+        <div class="grp-header year-hdr" data-toggle-year="${y}">
+          <span class="chev">${yearOpen ? "▾" : "▸"}</span>
+          <span class="grp-title">${y}</span>
+          ${totalsPillHtml(years[y].credit, years[y].debit)}
+        </div>`;
+      if (yearOpen) {
+        years[y].txns.sort((a, b) => parseISO(b.date) - parseISO(a.date));
+        html += `
+          <div class="txn-col-hdr">
+            <div class="txn-date">Date</div>
+            <div class="txn-bank">Bank</div>
+            <div class="txn-cell-desc">Description</div>
+            <div class="txn-amount">Amount</div>
+          </div>` + years[y].txns.map(txnRowHtml).join("");
+      }
+    });
+    return html;
+  }
+
+  function categoryOptionsSorted() {
+    const cats = distinctValues("cat");
+    const idx = cats.findIndex((c) => c.toLowerCase() === "rents");
+    if (idx > 0) { const rents = cats.splice(idx, 1)[0]; cats.unshift(rents); }
+    return cats;
+  }
+
+  function subcatOptionsFor(selectedCat) {
+    const set = new Set();
+    state.txns.forEach((t) => {
+      if (!t.subcat || !t.subcat.trim()) return;
+      if (selectedCat && (t.cat || "").trim().toLowerCase() !== selectedCat.trim().toLowerCase()) return;
+      set.add(t.subcat.trim());
+    });
+    return Array.from(set).sort();
+  }
+
+  function populateTxnFilterSelects() {
+    function fillSelect(sel, options, allLabel, currentVal) {
+      sel.innerHTML = `<option value="">${allLabel}</option>` + options.map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
+      sel.value = options.includes(currentVal) ? currentVal : "";
+    }
+    fillSelect(document.getElementById("filter-bank"), distinctValues("bank"), "All Banks", state.txnFilters.bank);
+    fillSelect(document.getElementById("filter-cat"), categoryOptionsSorted(), "All Categories", state.txnFilters.cat);
+    fillSelect(document.getElementById("filter-subcat"), subcatOptionsFor(state.txnFilters.cat), "All Sub-categories", state.txnFilters.subcat);
+  }
+
   function renderTransactions() {
+    populateTxnFilterSelects();
+
     const q = state.txnSearch.trim().toLowerCase();
+    const f = state.txnFilters;
     let list = state.txns.slice();
+    if (f.bank) list = list.filter((t) => (t.bank || "").trim() === f.bank);
+    if (f.cat) list = list.filter((t) => (t.cat || "").trim().toLowerCase() === f.cat.toLowerCase());
+    if (f.subcat) list = list.filter((t) => (t.subcat || "").trim() === f.subcat);
     if (q) {
       list = list.filter((t) =>
         (t.description || "").toLowerCase().includes(q) ||
@@ -419,12 +490,15 @@
       return;
     }
     if (list.length === 0) {
-      container.innerHTML = `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions match your search.</div></div>`;
+      container.innerHTML = `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions match your filters.</div></div>`;
       return;
     }
 
     let html;
-    if (q) {
+    if (f.subcat) {
+      // A specific sub-category is selected — skip the monthly breakdown, list year-wise only.
+      html = renderYearOnlyGrouped(list);
+    } else if (q) {
       // While actively searching, show a flat list so matches are never hidden inside a collapsed section.
       list.sort((a, b) => parseISO(b.date) - parseISO(a.date));
       html = `
@@ -465,6 +539,20 @@
   }
 
   document.getElementById("btn-add-txn").addEventListener("click", () => openTxnSheet(null));
+
+  document.getElementById("filter-bank").addEventListener("change", (e) => {
+    state.txnFilters.bank = e.target.value;
+    renderTransactions();
+  });
+  document.getElementById("filter-cat").addEventListener("change", (e) => {
+    state.txnFilters.cat = e.target.value;
+    state.txnFilters.subcat = ""; // subcat options depend on category, reset to avoid a stale/invalid selection
+    renderTransactions();
+  });
+  document.getElementById("filter-subcat").addEventListener("change", (e) => {
+    state.txnFilters.subcat = e.target.value;
+    renderTransactions();
+  });
 
   document.getElementById("txn-search").addEventListener("input", (e) => {
     state.txnSearch = e.target.value;
