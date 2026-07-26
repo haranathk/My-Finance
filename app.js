@@ -332,7 +332,7 @@
       <div class="txn-table-row" data-open-edit="${t.id}">
         <div class="txn-date">${fmtDMonYY(t.date)}</div>
         <div class="txn-bank">${escapeHtml(t.bank || "—")}</div>
-        <div class="txn-cell-desc">${escapeHtml(t.description || "(no description)")}</div>
+        <div class="txn-cell-desc">${escapeHtml((t.subcat && t.subcat.trim()) ? t.subcat.trim() : (t.description || "(no description)"))}</div>
         <div class="txn-amount" style="color:${isCredit ? "var(--green)" : "var(--red)"};">${formatINR(amt)}</div>
       </div>`;
   }
@@ -390,7 +390,7 @@
               <div class="txn-col-hdr">
                 <div class="txn-date">Date</div>
                 <div class="txn-bank">Bank</div>
-                <div class="txn-cell-desc">Description</div>
+                <div class="txn-cell-desc">Details</div>
                 <div class="txn-amount">Amount</div>
               </div>`;
             html += info.txns.map(txnRowHtml).join("");
@@ -430,7 +430,7 @@
           <div class="txn-col-hdr">
             <div class="txn-date">Date</div>
             <div class="txn-bank">Bank</div>
-            <div class="txn-cell-desc">Description</div>
+            <div class="txn-cell-desc">Details</div>
             <div class="txn-amount">Amount</div>
           </div>` + years[y].txns.map(txnRowHtml).join("");
       }
@@ -505,7 +505,7 @@
         <div class="txn-col-hdr">
           <div class="txn-date">Date</div>
           <div class="txn-bank">Bank</div>
-          <div class="txn-cell-desc">Description</div>
+          <div class="txn-cell-desc">Details</div>
           <div class="txn-amount">Amount</div>
         </div>` + list.map(txnRowHtml).join("");
     } else {
