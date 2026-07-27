@@ -90,6 +90,14 @@
   function fmtDMon(iso) { const d = parseISO(iso); return `${pad2(d.getDate())} ${MONTHS[d.getMonth()]}`; }
   function fmtDMonYY(iso) { const d = parseISO(iso); return `${pad2(d.getDate())}-${MONTHS[d.getMonth()]}-${String(d.getFullYear()).slice(-2)}`; }
 
+  function parseAmount(val) {
+    if (!val) return 0;
+    // Strips currency symbols, commas, and whitespace so pasted/imported amounts like "₹25,000" or "1,000.50" parse cleanly.
+    const cleaned = String(val).replace(/[₹,$,\s]/g, "").trim();
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : num;
+  }
+
   function formatINR(n) {
     const v = Math.round(n || 0);
     return "₹" + Math.abs(v).toLocaleString("en-IN");
@@ -921,13 +929,6 @@
           const dateVal = parseFlexibleDate(iDate >= 0 ? r[iDate] : "");
           const desc = iDesc >= 0 ? (r[iDesc] || "").trim() : "";
           if (!dateVal) continue;  // Only skip if date is missing
-          function parseAmount(val) {
-            if (!val) return 0;
-            // Remove commas, currency symbols, and whitespace
-            const cleaned = String(val).replace(/[₹,$,\s]/g, "").trim();
-            const num = parseFloat(cleaned);
-            return isNaN(num) ? 0 : num;
-          }
           const debit = iDebit >= 0 ? parseAmount(r[iDebit]) : 0;
           const credit = iCredit >= 0 ? parseAmount(r[iCredit]) : 0;
           const bank = iBank >= 0 ? (r[iBank] || "").trim() : "";
