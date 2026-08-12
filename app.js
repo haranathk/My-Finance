@@ -1001,6 +1001,14 @@
 
   function openDrivePicker() {
     const apiKey = localStorage.getItem(GOOGLE_API_KEY_KEY);
+    const clientId = localStorage.getItem(GOOGLE_CLIENT_ID_KEY) || "";
+    // The Cloud project number is the leading digits of the OAuth Client ID
+    // (e.g. "123456789012-abc...apps.googleusercontent.com" -> "123456789012").
+    // With the restrictive drive.file scope, Picker MUST be told the app id so
+    // that a picked file is actually granted to this app; otherwise the Drive/
+    // Sheets REST calls that follow will fail with 403/404 even though the
+    // user just selected the file.
+    const appId = clientId.split("-")[0];
     const view1 = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS).setIncludeFolders(true);
     const view2 = new google.picker.DocsView(google.picker.ViewId.DOCS)
       .setIncludeFolders(true)
@@ -1010,6 +1018,7 @@
       .addView(view2)
       .setOAuthToken(driveAccessToken)
       .setDeveloperKey(apiKey)
+      .setAppId(appId)
       .setCallback(onDriveFilePicked)
       .build();
     picker.setVisible(true);
