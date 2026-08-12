@@ -906,61 +906,166 @@
     return rows.filter((r) => r.length > 1 || (r.length === 1 && r[0] !== ""));
   }
 
+  function importCsvText(text) {
+    try {
+      const rows = parseCSV(text);
+      if (rows.length < 2) { showToast("No transactions found in file"); return; }
+      const header = rows[0].map((h) => h.trim().toLowerCase());
+      const idx = (name) => header.indexOf(name.toLowerCase());
+      const iSerial = idx("1"), iBank = idx("bank"), iDate = idx("date"), iDesc = idx("description"),
+        iRef = idx("ref"), iDebit = idx("debit"), iCredit = idx("credit"), iCat = idx("cat"),
+        iSubcat = idx("subcat"), iKey = idx("key"), iPhoto = idx("photo"), iFile = idx("file"),
+        iRate = idx("rate"), iWeight = idx("weight");
+
+      const existingSignatures = new Set(state.txns.map((t) => `${t.date}|${t.description}|${t.debit}|${t.credit}|${t.ref}|${t.bank}`));
+      let added = 0, skipped = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const dateVal = parseFlexibleDate(iDate >= 0 ? r[iDate] : "");
+        const desc = iDesc >= 0 ? (r[iDesc] || "").trim() : "";
+        if (!dateVal) continue;  // Only skip if date is missing
+        const debit = iDebit >= 0 ? parseAmount(r[iDebit]) : 0;
+        const credit = iCredit >= 0 ? parseAmount(r[iCredit]) : 0;
+        const bank = iBank >= 0 ? (r[iBank] || "").trim() : "";
+        const ref = iRef >= 0 ? (r[iRef] || "").trim() : "";
+        const sig = `${dateVal}|${desc || "(no desc)"}|${debit}|${credit}|${ref}|${bank}`;
+        if (existingSignatures.has(sig)) { skipped++; continue; }
+        existingSignatures.add(sig);
+        state.txns.push({
+          id: uuid(),
+          serial: iSerial >= 0 ? (r[iSerial] || "").trim() : "",
+          bank, date: dateVal, description: desc, ref,
+          debit, credit,
+          cat: iCat >= 0 ? (r[iCat] || "").trim() : "",
+          subcat: iSubcat >= 0 ? (r[iSubcat] || "").trim() : "",
+          key: iKey >= 0 ? (r[iKey] || "").trim() : "",
+          photoData: iPhoto >= 0 && r[iPhoto] && r[iPhoto].startsWith("data:") ? r[iPhoto] : null,
+          file: iFile >= 0 ? (r[iFile] || "").trim() : "",
+          rate: iRate >= 0 ? parseAmount(r[iRate]) || "" : "",
+          weight: iWeight >= 0 ? parseAmount(r[iWeight]) || "" : "",
+        });
+        added++;
+      }
+      saveTxns();
+      renderActive();
+      showToast(`Import complete. Added ${added} transaction${added === 1 ? "" : "s"}, skipped ${skipped} duplicate${skipped === 1 ? "" : "s"}.`);
+    } catch (err) {
+      console.error(err);
+      showToast("Failed to import: " + err.message);
+    }
+  }
+
   document.getElementById("btn-import-csv").addEventListener("click", () => document.getElementById("csvFileInput").click());
   document.getElementById("csvFileInput").addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      try {
-        const rows = parseCSV(reader.result);
-        if (rows.length < 2) { showToast("No transactions found in file"); return; }
-        const header = rows[0].map((h) => h.trim().toLowerCase());
-        const idx = (name) => header.indexOf(name.toLowerCase());
-        const iSerial = idx("1"), iBank = idx("bank"), iDate = idx("date"), iDesc = idx("description"),
-          iRef = idx("ref"), iDebit = idx("debit"), iCredit = idx("credit"), iCat = idx("cat"),
-          iSubcat = idx("subcat"), iKey = idx("key"), iPhoto = idx("photo"), iFile = idx("file"),
-          iRate = idx("rate"), iWeight = idx("weight");
-
-        const existingSignatures = new Set(state.txns.map((t) => `${t.date}|${t.description}|${t.debit}|${t.credit}|${t.ref}|${t.bank}`));
-        let added = 0, skipped = 0;
-        for (let i = 1; i < rows.length; i++) {
-          const r = rows[i];
-          const dateVal = parseFlexibleDate(iDate >= 0 ? r[iDate] : "");
-          const desc = iDesc >= 0 ? (r[iDesc] || "").trim() : "";
-          if (!dateVal) continue;  // Only skip if date is missing
-          const debit = iDebit >= 0 ? parseAmount(r[iDebit]) : 0;
-          const credit = iCredit >= 0 ? parseAmount(r[iCredit]) : 0;
-          const bank = iBank >= 0 ? (r[iBank] || "").trim() : "";
-          const ref = iRef >= 0 ? (r[iRef] || "").trim() : "";
-          const sig = `${dateVal}|${desc || "(no desc)"}|${debit}|${credit}|${ref}|${bank}`;
-          if (existingSignatures.has(sig)) { skipped++; continue; }
-          existingSignatures.add(sig);
-          state.txns.push({
-            id: uuid(),
-            serial: iSerial >= 0 ? (r[iSerial] || "").trim() : "",
-            bank, date: dateVal, description: desc, ref,
-            debit, credit,
-            cat: iCat >= 0 ? (r[iCat] || "").trim() : "",
-            subcat: iSubcat >= 0 ? (r[iSubcat] || "").trim() : "",
-            key: iKey >= 0 ? (r[iKey] || "").trim() : "",
-            photoData: iPhoto >= 0 && r[iPhoto] && r[iPhoto].startsWith("data:") ? r[iPhoto] : null,
-            file: iFile >= 0 ? (r[iFile] || "").trim() : "",
-            rate: iRate >= 0 ? parseAmount(r[iRate]) || "" : "",
-            weight: iWeight >= 0 ? parseAmount(r[iWeight]) || "" : "",
-          });
-          added++;
-        }
-        saveTxns();
-        renderActive();
-        showToast(`Import complete. Added ${added} transaction${added === 1 ? "" : "s"}, skipped ${skipped} duplicate${skipped === 1 ? "" : "s"}.`);
-      } catch (err) {
-        console.error(err);
-        showToast("Failed to import file: " + err.message);
-      }
+      importCsvText(reader.result);
       document.getElementById("csvFileInput").value = "";
     };
     reader.readAsText(file);
+  });
+
+  // ---------- Google Drive Import ----------
+  const GOOGLE_CLIENT_ID_KEY = "financeTrackerGoogleClientId";
+  const GOOGLE_API_KEY_KEY = "financeTrackerGoogleApiKey";
+  const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
+  function loadGoogleCreds() {
+    document.getElementById("google-client-id").value = localStorage.getItem(GOOGLE_CLIENT_ID_KEY) || "";
+    document.getElementById("google-api-key").value = localStorage.getItem(GOOGLE_API_KEY_KEY) || "";
+  }
+  loadGoogleCreds();
+
+  document.getElementById("btn-save-google-creds").addEventListener("click", () => {
+    const clientId = document.getElementById("google-client-id").value.trim();
+    const apiKey = document.getElementById("google-api-key").value.trim();
+    if (!clientId || !apiKey) { showToast("Please enter both the Client ID and API Key"); return; }
+    localStorage.setItem(GOOGLE_CLIENT_ID_KEY, clientId);
+    localStorage.setItem(GOOGLE_API_KEY_KEY, apiKey);
+    showToast("Google credentials saved on this device");
+  });
+
+  let driveTokenClient = null;
+  let driveAccessToken = null;
+  let pickerLoaded = false;
+
+  function ensurePickerLoaded() {
+    return new Promise((resolve) => {
+      if (pickerLoaded) return resolve();
+      if (typeof gapi === "undefined") { showToast("Google API script hasn't loaded yet — check your internet connection and try again."); return; }
+      gapi.load("picker", () => { pickerLoaded = true; resolve(); });
+    });
+  }
+
+  function openDrivePicker() {
+    const apiKey = localStorage.getItem(GOOGLE_API_KEY_KEY);
+    const view1 = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS).setIncludeFolders(true);
+    const view2 = new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setIncludeFolders(true)
+      .setMimeTypes("text/csv,text/plain,text/comma-separated-values");
+    const picker = new google.picker.PickerBuilder()
+      .addView(view1)
+      .addView(view2)
+      .setOAuthToken(driveAccessToken)
+      .setDeveloperKey(apiKey)
+      .setCallback(onDriveFilePicked)
+      .build();
+    picker.setVisible(true);
+  }
+
+  function onDriveFilePicked(data) {
+    if (data.action !== google.picker.Action.PICKED) return;
+    const file = data.docs[0];
+    fetchDriveFileAsCsv(file.id, file.mimeType, file.name);
+  }
+
+  function fetchDriveFileAsCsv(fileId, mimeType, name) {
+    showToast("Fetching " + name + "…");
+    const isSheet = mimeType === "application/vnd.google-apps.spreadsheet";
+    const url = isSheet
+      ? `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`
+      : `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+    fetch(url, { headers: { Authorization: "Bearer " + driveAccessToken } })
+      .then((res) => {
+        if (!res.ok) throw new Error("Drive request failed (" + res.status + ")");
+        return res.text();
+      })
+      .then((text) => {
+        if (isSheet) showToast("Note: only the first sheet/tab of a Google Sheet is imported.");
+        importCsvText(text);
+      })
+      .catch((err) => {
+        console.error(err);
+        showToast("Failed to fetch file from Drive: " + err.message);
+      });
+  }
+
+  document.getElementById("btn-import-drive").addEventListener("click", async () => {
+    const clientId = localStorage.getItem(GOOGLE_CLIENT_ID_KEY);
+    const apiKey = localStorage.getItem(GOOGLE_API_KEY_KEY);
+    if (!clientId || !apiKey) {
+      showToast("First save your Google Client ID and API Key below, then try again");
+      return;
+    }
+    if (typeof google === "undefined" || !google.accounts) {
+      showToast("Google sign-in script hasn't loaded yet — check your internet connection and try again.");
+      return;
+    }
+    await ensurePickerLoaded();
+    if (!driveTokenClient) {
+      driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: DRIVE_SCOPE,
+        callback: (resp) => {
+          if (resp.error) { showToast("Google sign-in failed: " + resp.error); return; }
+          driveAccessToken = resp.access_token;
+          openDrivePicker();
+        },
+      });
+    }
+    driveTokenClient.requestAccessToken({ prompt: driveAccessToken ? "" : "consent" });
   });
 
   // ---------- Service worker ----------
