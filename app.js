@@ -1022,25 +1022,83 @@
   }
 
   function fetchDriveFileAsCsv(fileId, mimeType, name) {
-    showToast("Fetching " + name + "…");
     const isSheet = mimeType === "application/vnd.google-apps.spreadsheet";
-    const url = isSheet
-      ? `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`
-      : `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-    fetch(url, { headers: { Authorization: "Bearer " + driveAccessToken } })
-      .then((res) => {
-        if (!res.ok) throw new Error("Drive request failed (" + res.status + ")");
-        return res.text();
+    if (isSheet) {
+      showToast("Loading tabs in " + name + "…");
+      fetch(`https://sheets.googleapis.com/v4/spreadsheets/${fileId}?fields=sheets.properties`, {
+        headers: { Authorization: "Bearer " + driveAccessToken },
       })
-      .then((text) => {
-        if (isSheet) showToast("Note: only the first sheet/tab of a Google Sheet is imported.");
-        importCsvText(text);
+        .then((res) => { if (!res.ok) throw new Error("Couldn't read sheet tabs (" + res.status + ")"); return res.json(); })
+        .then((data) => {
+          const tabs = (data.sheets || []).map((s) => s.properties.title);
+          if (tabs.length === 0) { showToast("No tabs found in this spreadsheet"); return; }
+          if (tabs.length === 1) { importDriveSheetTab(fileId, tabs[0]); return; }
+          showSheetTabPicker(fileId, tabs, name);
+        })
+        .catch((err) => {
+          console.error(err);
+          showToast("Failed to read spreadsheet: " + err.message);
+        });
+    } else {
+      showToast("Fetching " + name + "…");
+      fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { Authorization: "Bearer " + driveAccessToken },
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Drive request failed (" + res.status + ")");
+          return res.text();
+        })
+        .then((text) => importCsvText(text))
+        .catch((err) => {
+          console.error(err);
+          showToast("Failed to fetch file from Drive: " + err.message);
+        });
+    }
+  }
+
+  function importDriveSheetTab(fileId, tabName) {
+    showToast(`Importing "${tabName}"…`);
+    fetch(`https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values/${encodeURIComponent(tabName)}`, {
+      headers: { Authorization: "Bearer " + driveAccessToken },
+    })
+      .then((res) => { if (!res.ok) throw new Error("Couldn't read tab data (" + res.status + ")"); return res.json(); })
+      .then((data) => {
+        const values = data.values || [];
+        if (values.length === 0) { showToast(`Tab "${tabName}" is empty`); return; }
+        const csv = values.map((row) => row.map(csvEscape).join(",")).join("\n");
+        importCsvText(csv);
       })
       .catch((err) => {
         console.error(err);
-        showToast("Failed to fetch file from Drive: " + err.message);
+        showToast("Failed to import tab: " + err.message);
       });
   }
+
+  function showSheetTabPicker(fileId, tabs, fileName) {
+    const overlay = document.getElementById("drive-tab-overlay");
+    const sheet = document.getElementById("drive-tab-sheet");
+    sheet.innerHTML = `
+      <div class="sheet-header">
+        <button data-action="cancel-tab-pick">Cancel</button>
+        <div class="sheet-title">Choose a tab</div>
+        <span style="width:44px;"></span>
+      </div>
+      <div class="sheet-body">
+        <div class="field-label" style="margin-top:0;">${escapeHtml(fileName)}</div>
+        ${tabs.map((t) => `<div class="type-card" data-tab-name="${escapeHtml(t)}">📄<span class="lbl">${escapeHtml(t)}</span><span class="go">Import</span></div>`).join("")}
+      </div>`;
+    overlay.classList.remove("hidden");
+    sheet.querySelector('[data-action="cancel-tab-pick"]').addEventListener("click", () => overlay.classList.add("hidden"));
+    sheet.querySelectorAll("[data-tab-name]").forEach((el) => {
+      el.addEventListener("click", () => {
+        overlay.classList.add("hidden");
+        importDriveSheetTab(fileId, el.dataset.tabName);
+      });
+    });
+  }
+  document.getElementById("drive-tab-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "drive-tab-overlay") e.currentTarget.classList.add("hidden");
+  });
 
   document.getElementById("btn-import-drive").addEventListener("click", async () => {
     const clientId = localStorage.getItem(GOOGLE_CLIENT_ID_KEY);
