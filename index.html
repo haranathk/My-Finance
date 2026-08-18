@@ -78,13 +78,43 @@
   .donut-block{ display:flex; align-items:center; gap:16px; padding:4px 16px 16px; }
   .empty-mini{ font-size:13px; color:var(--secondary); padding:8px 16px 16px; }
 
+  .amt-click{ cursor:pointer; }
+
   .search-bar{ display:flex; align-items:center; gap:8px; margin:8px 16px; background:rgba(142,142,147,0.12); border-radius:10px; padding:8px 10px;}
   .search-bar input{ border:none; background:none; outline:none; flex:1; font-size:15px; color:var(--text);}
+  .icon-toggle-btn{ background:none; border:1px solid var(--border); border-radius:8px; padding:5px 7px; font-size:14px; color:var(--secondary); cursor:pointer; flex-shrink:0; line-height:1; }
+  .icon-toggle-btn.active{ background:rgba(16,185,129,0.15); border-color:var(--green); color:var(--green); }
   .filter-select-row{ display:flex; gap:6px; padding:0 16px 8px; }
   .filter-select-row select{
     flex:1; min-width:0; border:1px solid var(--border); background:var(--card); color:var(--text);
     border-radius:8px; padding:6px 4px; font-size:12px; font-family:inherit;
   }
+  .range-filter-row{ display:flex; align-items:center; gap:6px; padding:0 16px 10px; flex-wrap:wrap; }
+  .range-filter-row select{
+    flex-shrink:0; width:112px; border:1px solid var(--border); background:var(--card); color:var(--text);
+    border-radius:8px; padding:6px 4px; font-size:12px; font-family:inherit;
+  }
+  .range-inputs{ display:flex; align-items:center; gap:6px; flex:1; min-width:150px; }
+  .range-inputs.hidden{ display:none; }
+  .range-input{ width:0; flex:1; min-width:70px; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:8px; padding:6px 8px; font-size:12px; font-family:inherit; }
+  .range-sep{ font-size:11px; color:var(--secondary); flex-shrink:0; }
+  .reset-filters-btn{ border:none; background:rgba(239,68,68,0.12); color:var(--red); font-size:12px; font-weight:600; padding:7px 10px; border-radius:8px; cursor:pointer; flex-shrink:0; }
+  .reset-filters-btn.hidden{ display:none; }
+
+  .drill-bar{ display:flex; align-items:center; gap:10px; padding:12px 16px; background:rgba(16,185,129,0.08); border-bottom:0.5px solid var(--border); position:sticky; top:0; z-index:3; }
+  .drill-bar .drill-label{ font-size:15px; font-weight:700; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drill-bar .drill-amt{ font-size:15px; font-weight:700; text-align:right; }
+  .drill-bar .drill-clear{ background:none; border:none; font-size:14px; color:var(--secondary); cursor:pointer; padding:2px 4px; flex-shrink:0; }
+
+  .detail-amount{ font-size:30px; font-weight:800; text-align:center; margin-top:6px; }
+  .detail-type{ text-align:center; font-size:13px; color:var(--secondary); margin-bottom:6px; }
+  .detail-photo{ display:flex; justify-content:center; margin-bottom:10px; }
+  .detail-photo img{ max-width:160px; max-height:160px; border-radius:12px; object-fit:cover; }
+  .detail-list{ background:var(--card); border-radius:10px; overflow:hidden; margin-top:14px; }
+  .detail-row{ display:flex; justify-content:space-between; gap:10px; padding:11px 14px; border-bottom:0.5px solid var(--border); font-size:14px; }
+  .detail-row:last-child{ border-bottom:none; }
+  .detail-label{ color:var(--secondary); flex-shrink:0; }
+  .detail-value{ font-weight:600; text-align:right; word-break:break-word; }
 
   .txn-row{ display:flex; align-items:center; gap:12px; padding:9px 16px; cursor:pointer; }
   .txn-table-row{ display:flex; align-items:center; gap:6px; padding:10px 12px 10px 30px; cursor:pointer; border-bottom:0.5px solid var(--border); }
@@ -211,11 +241,25 @@
   <div class="screen" id="screen-transactions">
     <div class="screen-header">
       <div class="topbar"><div class="page-title">Transactions</div></div>
-      <div class="search-bar"><span>🔍</span><input type="text" id="txn-search" placeholder="Search description, ref, bank, category"></div>
+      <div class="search-bar">
+        <span>🔍</span><input type="text" id="txn-search" placeholder="Search description, ref, bank, category">
+        <button id="btn-toggle-group" class="icon-toggle-btn active" title="Group by month">📅</button>
+      </div>
       <div class="filter-select-row">
         <select id="filter-bank"><option value="">All Banks</option></select>
         <select id="filter-cat"><option value="">All Categories</option></select>
         <select id="filter-subcat"><option value="">All Sub-categories</option></select>
+      </div>
+      <div class="range-filter-row">
+        <select id="range-field-select">
+          <option value="">Filter range…</option>
+          <option value="date">Date</option>
+          <option value="credit">Credit</option>
+          <option value="debit">Debit</option>
+          <option value="amount">Amount</option>
+        </select>
+        <div id="range-inputs-wrap" class="range-inputs hidden"></div>
+        <button id="btn-reset-filters" class="reset-filters-btn hidden">Reset</button>
       </div>
     </div>
     <div class="screen-body" id="txn-list"></div>
@@ -253,16 +297,8 @@
         <div class="settings-row" id="btn-export-csv">📤<span>Export to CSV</span></div>
         <div class="settings-row" id="btn-import-csv">📥<span>Import from CSV (device)</span></div>
         <div class="settings-row" id="btn-import-drive">🔗<span>Import from Google Drive</span></div>
+        <div class="settings-row" id="btn-open-drive-setup">🔑<span>Google Drive Setup</span><span style="margin-left:auto; color:var(--secondary);">›</span></div>
         <div class="settings-row destructive" id="btn-delete-all">🗑️<span>Delete All Transactions</span></div>
-      </div>
-      <div class="section-label">Google Drive Setup <span style="text-transform:none; font-weight:400;">(one-time)</span></div>
-      <div class="settings-list" style="padding:12px 14px;">
-        <div style="font-size:12.5px; color:var(--secondary); margin-bottom:10px; line-height:1.5;">Paste your own Google Client ID and API Key here once. These are saved only on this device and are needed so Google knows this app is allowed to ask for your permission. See the setup guide for how to get them.</div>
-        <div class="field-label" style="margin-top:0;">Google Client ID</div>
-        <input type="text" class="text-input" id="google-client-id" placeholder="xxxxxxxxxx.apps.googleusercontent.com">
-        <div class="field-label">Google API Key</div>
-        <input type="text" class="text-input" id="google-api-key" placeholder="AIza...">
-        <button id="btn-save-google-creds" style="width:100%; margin-top:14px; background:var(--green); color:#fff; border:none; padding:12px; border-radius:10px; font-weight:600;">Save Credentials</button>
       </div>
       <div class="section-label">App</div>
       <div class="settings-list">
@@ -288,6 +324,26 @@
 </div>
 <div class="sheet-overlay hidden" id="drive-tab-overlay">
   <div class="sheet" id="drive-tab-sheet"></div>
+</div>
+<div class="sheet-overlay hidden" id="txn-detail-overlay">
+  <div class="sheet" id="txn-detail-sheet"></div>
+</div>
+<div class="sheet-overlay hidden" id="drive-setup-overlay">
+  <div class="sheet" id="drive-setup-sheet">
+    <div class="sheet-header">
+      <span style="width:44px;"></span>
+      <div class="sheet-title">Google Drive Setup</div>
+      <button data-action="close-drive-setup">Close</button>
+    </div>
+    <div class="sheet-body">
+      <div style="font-size:12.5px; color:var(--secondary); margin-bottom:10px; line-height:1.5;">Paste your own Google Client ID and API Key here once. These are saved only on this device and are needed so Google knows this app is allowed to ask for your permission. See the setup guide for how to get them.</div>
+      <div class="field-label" style="margin-top:0;">Google Client ID</div>
+      <input type="text" class="text-input" id="google-client-id" placeholder="xxxxxxxxxx.apps.googleusercontent.com">
+      <div class="field-label">Google API Key</div>
+      <input type="text" class="text-input" id="google-api-key" placeholder="AIza...">
+      <button id="btn-save-google-creds" style="width:100%; margin-top:14px; background:var(--green); color:#fff; border:none; padding:12px; border-radius:10px; font-weight:600;">Save Credentials</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast hidden" id="toast"></div>

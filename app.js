@@ -65,7 +65,15 @@
     dashboard: { periodType: "monthly", anchor: new Date() },
     rentals: { year: new Date().getFullYear() },
     txnSearch: "",
-    txnFilters: { bank: "", cat: "", subcat: "" },
+    txnFilters: {
+      bank: "", cat: "", subcat: "",
+      dateFrom: "", dateTo: "",
+      creditMin: "", creditMax: "", debitMin: "", debitMax: "", amountMin: "", amountMax: "",
+      kind: "", // "" | "credit" | "debit" — used by dashboard drill-down to show only one side
+    },
+    txnGroupByMonth: true,
+    txnRangeField: "", // "" | "date" | "credit" | "debit" | "amount" — which range filter is active
+    txnDrillLabel: null, // set when arriving from a Dashboard drill-down tap; shown as a header bar
     editingId: null,
   };
 
@@ -166,20 +174,47 @@
   }
 
   // ---------- Tabs ----------
+  function goToTab(tab) {
+    state.activeTab = tab;
+    document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+    document.getElementById("screen-" + tab).classList.add("active");
+    renderActive();
+  }
   document.querySelectorAll(".tab").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.activeTab = btn.dataset.tab;
-      document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b === btn));
-      document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
-      document.getElementById("screen-" + btn.dataset.tab).classList.add("active");
-      renderActive();
-    });
+    btn.addEventListener("click", () => goToTab(btn.dataset.tab));
   });
 
   function renderActive() {
     if (state.activeTab === "dashboard") renderDashboard();
     else if (state.activeTab === "transactions") renderTransactions();
     else if (state.activeTab === "rentals") renderRentals();
+  }
+
+  // Jumps to the Transactions tab pre-filtered from a Dashboard amount tap
+  // (a bank card, the Credit/Debit summary, or a category legend row).
+  function drillToTransactions(opts) {
+    const { start, end } = getPeriodRange();
+    state.txnFilters = {
+      bank: opts.bank || "", cat: opts.cat || "", subcat: "",
+      dateFrom: toISO(start), dateTo: toISO(end),
+      creditMin: "", creditMax: "", debitMin: "", debitMax: "", amountMin: "", amountMax: "",
+      kind: opts.kind || "",
+    };
+    state.txnSearch = "";
+    state.txnRangeField = "date";
+    let label;
+    if (opts.bank) label = "🏦 " + opts.bank;
+    else if (opts.cat) label = categoryIcon(opts.cat) + " " + opts.cat;
+    else if (opts.kind === "credit") label = "Credit";
+    else if (opts.kind === "debit") label = "Debit";
+    state.txnDrillLabel = label || null;
+    goToTab("transactions");
+    const searchEl = document.getElementById("txn-search");
+    if (searchEl) searchEl.value = "";
+    const rangeSel = document.getElementById("range-field-select");
+    if (rangeSel) rangeSel.value = "date";
+    renderRangeInputs();
   }
 
   // ================= DASHBOARD =================
@@ -247,7 +282,7 @@
     return entries;
   }
 
-  function renderDonutBlock(containerId, canvasId, entries, chartRef) {
+  function renderDonutBlock(containerId, canvasId, entries, kind) {
     const container = document.getElementById(containerId);
     if (entries.length === 0) {
       container.innerHTML = `<div class="empty-mini">No data for this period.</div>`;
@@ -256,10 +291,12 @@
     const legendHtml = entries.map(([cat, amt]) => {
       const color = cat === "Other" ? "#8E8E93" : categoryColor(cat);
       const icon = cat === "Other" ? "🔹" : categoryIcon(cat);
+      // "Other" folds several categories together, so it isn't drillable to a single category filter.
+      const clickAttrs = cat === "Other" ? "" : `data-drill data-drill-cat="${escapeHtml(cat)}" data-drill-kind="${kind}"`;
       return `<div class="cat-legend-row">
         <div class="cat-bubble" style="background:${hexToRgba(color, 0.18)};">${icon}</div>
         <div class="name">${escapeHtml(cat)}</div>
-        <div class="amt">${formatINR(amt)}</div>
+        <div class="amt ${cat === "Other" ? "" : "amt-click"}" ${clickAttrs}>${formatINR(amt)}</div>
       </div>`;
     }).join("");
     container.innerHTML = `
@@ -301,14 +338,14 @@
         ${bankEntries.map(([bank, amt]) => `
           <div class="account-card">
             <div class="bank">🏦 ${escapeHtml(bank)}</div>
-            <div class="amt ${amt >= 0 ? "amt-pos" : "amt-neg"}">${amt >= 0 ? "+" : "-"}${formatINR(amt)}</div>
+            <div class="amt amt-click ${amt >= 0 ? "amt-pos" : "amt-neg"}" data-drill data-drill-bank="${escapeHtml(bank)}">${amt >= 0 ? "+" : "-"}${formatINR(amt)}</div>
           </div>`).join("")}
       </div>` : "";
 
     const summaryHtml = `
       <div class="summary-grid">
-        <div class="summary-card credit"><div class="lbl">Credit</div><div class="val">${formatINR(totalCredit)}</div></div>
-        <div class="summary-card debit"><div class="lbl">Debit</div><div class="val">${formatINR(totalDebit)}</div></div>
+        <div class="summary-card credit"><div class="lbl">Credit</div><div class="val amt-click" data-drill data-drill-kind="credit">${formatINR(totalCredit)}</div></div>
+        <div class="summary-card debit"><div class="lbl">Debit</div><div class="val amt-click" data-drill data-drill-kind="debit">${formatINR(totalDebit)}</div></div>
       </div>
       <div class="net-card"><div class="lbl">Net (${escapeHtml(label)})</div><div class="val" style="color:${net >= 0 ? "var(--green)" : "var(--red)"};">${net >= 0 ? "+" : "-"}${formatINR(net)}</div></div>
     `;
@@ -322,8 +359,20 @@
     if (incomeChart) { incomeChart.destroy(); incomeChart = null; }
     const expenseEntries = buildCategoryBreakdown(inRange, "debit");
     const incomeEntries = buildCategoryBreakdown(inRange, "credit");
-    expenseChart = renderDonutBlock("expense-donut-container", "expense-donut", expenseEntries);
-    incomeChart = renderDonutBlock("income-donut-container", "income-donut", incomeEntries);
+    expenseChart = renderDonutBlock("expense-donut-container", "expense-donut", expenseEntries, "debit");
+    incomeChart = renderDonutBlock("income-donut-container", "income-donut", incomeEntries, "credit");
+
+    // Any amount tapped above (bank / credit / debit / category) jumps to a
+    // pre-filtered Transactions view for this same period.
+    body.querySelectorAll("[data-drill]").forEach((el) => {
+      el.addEventListener("click", () => {
+        drillToTransactions({
+          bank: el.dataset.drillBank || "",
+          cat: el.dataset.drillCat || "",
+          kind: el.dataset.drillKind || "",
+        });
+      });
+    });
   }
 
   // ================= TRANSACTIONS =================
@@ -473,8 +522,31 @@
     fillSelect(document.getElementById("filter-subcat"), subcatOptionsFor(state.txnFilters.cat), "All Sub-categories", state.txnFilters.subcat);
   }
 
+  // Sum of what's currently listed, formatted the same way the tapped
+  // Dashboard amount was (net for a bank, credit-only or debit-only otherwise).
+  function drillHeaderAmount(list) {
+    const totalCredit = list.reduce((s, t) => s + (parseFloat(t.credit) || 0), 0);
+    const totalDebit = list.reduce((s, t) => s + (parseFloat(t.debit) || 0), 0);
+    if (state.txnFilters.kind === "credit") return formatINR(totalCredit);
+    if (state.txnFilters.kind === "debit") return formatINR(totalDebit);
+    const net = totalCredit - totalDebit;
+    return (net >= 0 ? "+" : "-") + formatINR(net);
+  }
+
+  function updateFilterControlsUI() {
+    const f = state.txnFilters;
+    const anyActive = !!(f.bank || f.cat || f.subcat || f.dateFrom || f.dateTo ||
+      f.creditMin || f.creditMax || f.debitMin || f.debitMax || f.amountMin || f.amountMax ||
+      f.kind || state.txnSearch || state.txnDrillLabel);
+    const resetBtn = document.getElementById("btn-reset-filters");
+    if (resetBtn) resetBtn.classList.toggle("hidden", !anyActive);
+    const groupBtn = document.getElementById("btn-toggle-group");
+    if (groupBtn) groupBtn.classList.toggle("active", state.txnGroupByMonth);
+  }
+
   function renderTransactions() {
     populateTxnFilterSelects();
+    updateFilterControlsUI();
 
     const q = state.txnSearch.trim().toLowerCase();
     const f = state.txnFilters;
@@ -482,6 +554,23 @@
     if (f.bank) list = list.filter((t) => (t.bank || "").trim() === f.bank);
     if (f.cat) list = list.filter((t) => (t.cat || "").trim().toLowerCase() === f.cat.toLowerCase());
     if (f.subcat) list = list.filter((t) => (t.subcat || "").trim() === f.subcat);
+    if (f.kind === "credit") list = list.filter((t) => (parseFloat(t.credit) || 0) > 0);
+    if (f.kind === "debit") list = list.filter((t) => (parseFloat(t.debit) || 0) > 0);
+    if (f.dateFrom) list = list.filter((t) => t.date >= f.dateFrom);
+    if (f.dateTo) list = list.filter((t) => t.date <= f.dateTo);
+    if (f.creditMin !== "") list = list.filter((t) => (parseFloat(t.credit) || 0) >= parseFloat(f.creditMin));
+    if (f.creditMax !== "") list = list.filter((t) => (parseFloat(t.credit) || 0) <= parseFloat(f.creditMax));
+    if (f.debitMin !== "") list = list.filter((t) => (parseFloat(t.debit) || 0) >= parseFloat(f.debitMin));
+    if (f.debitMax !== "") list = list.filter((t) => (parseFloat(t.debit) || 0) <= parseFloat(f.debitMax));
+    if (f.amountMin !== "" || f.amountMax !== "") {
+      list = list.filter((t) => {
+        const c = parseFloat(t.credit) || 0, d = parseFloat(t.debit) || 0;
+        const amt = c > 0 ? c : d;
+        if (f.amountMin !== "" && amt < parseFloat(f.amountMin)) return false;
+        if (f.amountMax !== "" && amt > parseFloat(f.amountMax)) return false;
+        return true;
+      });
+    }
     if (q) {
       list = list.filter((t) =>
         (t.description || "").toLowerCase().includes(q) ||
@@ -497,16 +586,22 @@
       container.innerHTML = `<div class="empty-state"><div class="glyph">💳</div><div>No transactions yet. Tap + to add one.</div></div>`;
       return;
     }
+
+    const drillBarHtml = state.txnDrillLabel ? `
+      <div class="drill-bar">
+        <div class="drill-label">${escapeHtml(state.txnDrillLabel)}</div>
+        <div class="drill-amt">${drillHeaderAmount(list)}</div>
+        <button class="drill-clear" data-clear-drill title="Clear">✕</button>
+      </div>` : "";
+
     if (list.length === 0) {
-      container.innerHTML = `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions match your filters.</div></div>`;
+      container.innerHTML = drillBarHtml + `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions match your filters.</div></div>`;
+      container.querySelectorAll("[data-clear-drill]").forEach((el) => el.addEventListener("click", resetTxnFilters));
       return;
     }
 
     let html;
-    if (f.subcat) {
-      // A specific sub-category is selected — skip the monthly breakdown, list year-wise only.
-      html = renderYearOnlyGrouped(list);
-    } else if (q) {
+    if (q) {
       // While actively searching, show a flat list so matches are never hidden inside a collapsed section.
       list.sort((a, b) => parseISO(b.date) - parseISO(a.date));
       html = `
@@ -516,13 +611,18 @@
           <div class="txn-cell-desc">Details</div>
           <div class="txn-amount">Amount</div>
         </div>` + list.map(txnRowHtml).join("");
+    } else if (f.subcat || !state.txnGroupByMonth) {
+      // A specific sub-category, or "group by month" turned off — skip the monthly
+      // breakdown (avoids a collapsed section holding just one transaction), list year-wise only.
+      html = renderYearOnlyGrouped(list);
     } else {
       html = renderTransactionsGrouped(list);
     }
-    container.innerHTML = html;
+    container.innerHTML = drillBarHtml + html;
 
+    container.querySelectorAll("[data-clear-drill]").forEach((el) => el.addEventListener("click", resetTxnFilters));
     container.querySelectorAll("[data-open-edit]").forEach((el) => {
-      el.addEventListener("click", () => openTxnSheet(el.dataset.openEdit));
+      el.addEventListener("click", () => openTxnDetail(el.dataset.openEdit));
     });
     container.querySelectorAll("[data-toggle-year]").forEach((el) => {
       el.addEventListener("click", () => {
@@ -565,6 +665,109 @@
   document.getElementById("txn-search").addEventListener("input", (e) => {
     state.txnSearch = e.target.value;
     renderTransactions();
+  });
+
+  document.getElementById("btn-toggle-group").addEventListener("click", () => {
+    state.txnGroupByMonth = !state.txnGroupByMonth;
+    renderTransactions();
+  });
+
+  // Builds the min/max (or from/to for dates) inputs for whichever field is
+  // selected in the range dropdown. Kept separate from renderTransactions()
+  // so typing in these inputs never rebuilds them and loses focus/cursor.
+  function renderRangeInputs() {
+    const wrap = document.getElementById("range-inputs-wrap");
+    const field = state.txnRangeField;
+    const f = state.txnFilters;
+    if (!field) { wrap.innerHTML = ""; wrap.classList.add("hidden"); return; }
+    wrap.classList.remove("hidden");
+    if (field === "date") {
+      wrap.innerHTML = `
+        <input type="date" id="range-from" class="range-input" value="${f.dateFrom || ""}">
+        <span class="range-sep">to</span>
+        <input type="date" id="range-to" class="range-input" value="${f.dateTo || ""}">`;
+      document.getElementById("range-from").addEventListener("change", (e) => { state.txnFilters.dateFrom = e.target.value; renderTransactions(); });
+      document.getElementById("range-to").addEventListener("change", (e) => { state.txnFilters.dateTo = e.target.value; renderTransactions(); });
+    } else {
+      const minKey = field + "Min", maxKey = field + "Max";
+      wrap.innerHTML = `
+        <input type="number" step="0.01" id="range-min" class="range-input" placeholder="Min" value="${f[minKey] || ""}">
+        <span class="range-sep">to</span>
+        <input type="number" step="0.01" id="range-max" class="range-input" placeholder="Max" value="${f[maxKey] || ""}">`;
+      document.getElementById("range-min").addEventListener("input", (e) => { state.txnFilters[minKey] = e.target.value; renderTransactions(); });
+      document.getElementById("range-max").addEventListener("input", (e) => { state.txnFilters[maxKey] = e.target.value; renderTransactions(); });
+    }
+  }
+
+  document.getElementById("range-field-select").addEventListener("change", (e) => {
+    state.txnRangeField = e.target.value;
+    renderRangeInputs();
+  });
+
+  function resetTxnFilters() {
+    state.txnFilters = {
+      bank: "", cat: "", subcat: "",
+      dateFrom: "", dateTo: "",
+      creditMin: "", creditMax: "", debitMin: "", debitMax: "", amountMin: "", amountMax: "",
+      kind: "",
+    };
+    state.txnSearch = "";
+    state.txnRangeField = "";
+    state.txnGroupByMonth = true;
+    state.txnDrillLabel = null;
+    document.getElementById("txn-search").value = "";
+    document.getElementById("range-field-select").value = "";
+    renderRangeInputs();
+    renderTransactions();
+  }
+  document.getElementById("btn-reset-filters").addEventListener("click", resetTxnFilters);
+
+  // ================= READ-ONLY TRANSACTION DETAIL =================
+  function openTxnDetail(id) {
+    const t = state.txns.find((x) => x.id === id);
+    if (!t) return;
+    const overlay = document.getElementById("txn-detail-overlay");
+    const sheet = document.getElementById("txn-detail-sheet");
+    const isCredit = (parseFloat(t.credit) || 0) > 0;
+    const amount = isCredit ? t.credit : t.debit;
+
+    function row(label, value) {
+      if (value === null || value === undefined || String(value).trim() === "") return "";
+      return `<div class="detail-row"><div class="detail-label">${escapeHtml(label)}</div><div class="detail-value">${escapeHtml(String(value))}</div></div>`;
+    }
+
+    sheet.innerHTML = `
+      <div class="sheet-header">
+        <button data-action="close-detail">Close</button>
+        <div class="sheet-title">Transaction Detail</div>
+        <button class="save" data-action="edit-detail">Edit</button>
+      </div>
+      <div class="sheet-body">
+        ${t.photoData ? `<div class="detail-photo"><img src="${t.photoData}"></div>` : ""}
+        <div class="detail-amount ${isCredit ? "amt-pos" : "amt-neg"}">${isCredit ? "+" : "-"}${formatINR(amount)}</div>
+        <div class="detail-type">${isCredit ? "Income (Credit)" : "Expense (Debit)"}</div>
+        <div class="detail-list">
+          ${row("Date", fmtDMY(t.date))}
+          ${row("Bank", t.bank)}
+          ${row("Description", t.description)}
+          ${row("Category", t.cat)}
+          ${row("Sub-category", t.subcat)}
+          ${row("Reference No.", t.ref)}
+          ${row("Key / Tag", t.key)}
+          ${row("File Reference", t.file)}
+          ${row("Rate (gold/silver)", t.rate)}
+          ${row("Weight (g)", t.weight)}
+        </div>
+      </div>`;
+    overlay.classList.remove("hidden");
+    sheet.querySelector('[data-action="close-detail"]').addEventListener("click", () => overlay.classList.add("hidden"));
+    sheet.querySelector('[data-action="edit-detail"]').addEventListener("click", () => {
+      overlay.classList.add("hidden");
+      openTxnSheet(id);
+    });
+  }
+  document.getElementById("txn-detail-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "txn-detail-overlay") e.currentTarget.classList.add("hidden");
   });
 
   // ================= ADD / EDIT TRANSACTION SHEET =================
@@ -985,6 +1188,17 @@
     localStorage.setItem(GOOGLE_CLIENT_ID_KEY, clientId);
     localStorage.setItem(GOOGLE_API_KEY_KEY, apiKey);
     showToast("Google credentials saved on this device");
+    document.getElementById("drive-setup-overlay").classList.add("hidden");
+  });
+
+  document.getElementById("btn-open-drive-setup").addEventListener("click", () => {
+    document.getElementById("drive-setup-overlay").classList.remove("hidden");
+  });
+  document.getElementById("drive-setup-sheet").querySelector('[data-action="close-drive-setup"]').addEventListener("click", () => {
+    document.getElementById("drive-setup-overlay").classList.add("hidden");
+  });
+  document.getElementById("drive-setup-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "drive-setup-overlay") e.currentTarget.classList.add("hidden");
   });
 
   let driveTokenClient = null;
@@ -1113,7 +1327,8 @@
     const clientId = localStorage.getItem(GOOGLE_CLIENT_ID_KEY);
     const apiKey = localStorage.getItem(GOOGLE_API_KEY_KEY);
     if (!clientId || !apiKey) {
-      showToast("First save your Google Client ID and API Key below, then try again");
+      showToast("First save your Google Client ID and API Key in Google Drive Setup, then try again");
+      document.getElementById("drive-setup-overlay").classList.remove("hidden");
       return;
     }
     if (typeof google === "undefined" || !google.accounts) {
