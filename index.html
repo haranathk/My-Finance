@@ -101,10 +101,12 @@
   .reset-filters-btn{ border:none; background:rgba(239,68,68,0.12); color:var(--red); font-size:12px; font-weight:600; padding:7px 10px; border-radius:8px; cursor:pointer; flex-shrink:0; }
   .reset-filters-btn.hidden{ display:none; }
 
-  .drill-bar{ display:flex; align-items:center; gap:10px; padding:12px 16px; background:rgba(16,185,129,0.08); border-bottom:0.5px solid var(--border); position:sticky; top:0; z-index:3; }
-  .drill-bar .drill-label{ font-size:15px; font-weight:700; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .drill-bar .drill-amt{ font-size:15px; font-weight:700; text-align:right; }
-  .drill-bar .drill-clear{ background:none; border:none; font-size:14px; color:var(--secondary); cursor:pointer; padding:2px 4px; flex-shrink:0; }
+  .drill-topbar{ display:flex; align-items:center; gap:10px; padding:10px 16px 12px; }
+  .drill-topbar .icon-btn{ font-size:22px; color:var(--secondary); flex-shrink:0; }
+  .drill-topbar .drill-name{ flex:1; min-width:0; font-size:19px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drill-topbar .drill-total{ font-size:19px; font-weight:800; text-align:right; flex-shrink:0; }
+  .drill-total.amt-pos{ color:var(--green); }
+  .drill-total.amt-neg{ color:var(--red); }
 
   .detail-amount{ font-size:30px; font-weight:800; text-align:center; margin-top:6px; }
   .detail-type{ text-align:center; font-size:13px; color:var(--secondary); margin-bottom:6px; }
@@ -306,6 +308,18 @@
       </div>
       <input type="file" id="csvFileInput" accept=".csv,text/csv">
     </div>
+  </div>
+
+  <!-- DASHBOARD DRILL-DOWN (opened from a Dashboard amount tap) -->
+  <div class="screen" id="screen-drilldown">
+    <div class="screen-header">
+      <div class="drill-topbar">
+        <button class="icon-btn" id="drill-close">✕</button>
+        <div class="drill-name" id="drill-title"></div>
+        <div class="drill-total" id="drill-amt"></div>
+      </div>
+    </div>
+    <div class="screen-body" id="drill-list"></div>
   </div>
 
   <div class="tabbar">

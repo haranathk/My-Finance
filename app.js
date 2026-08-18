@@ -73,7 +73,6 @@
     },
     txnGroupByMonth: true,
     txnRangeField: "", // "" | "date" | "credit" | "debit" | "amount" — which range filter is active
-    txnDrillLabel: null, // set when arriving from a Dashboard drill-down tap; shown as a header bar
     editingId: null,
   };
 
@@ -191,30 +190,64 @@
     else if (state.activeTab === "rentals") renderRentals();
   }
 
-  // Jumps to the Transactions tab pre-filtered from a Dashboard amount tap
-  // (a bank card, the Credit/Debit summary, or a category legend row).
+  // ---------- Dashboard drill-down screen ----------
+  // A lightweight standalone screen (not a tab) opened from a Dashboard
+  // amount tap — bank card, Credit/Debit summary, or a category legend row.
+  // Kept separate from the Transactions tab so it isn't cluttered with all
+  // of that screen's search/filter controls.
+  function openDrilldownScreen() {
+    document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+    document.getElementById("screen-drilldown").classList.add("active");
+  }
+  function closeDrilldownScreen() {
+    document.getElementById("screen-drilldown").classList.remove("active");
+    document.getElementById("screen-" + state.activeTab).classList.add("active");
+  }
+  document.getElementById("drill-close").addEventListener("click", closeDrilldownScreen);
+
   function drillToTransactions(opts) {
     const { start, end } = getPeriodRange();
-    state.txnFilters = {
-      bank: opts.bank || "", cat: opts.cat || "", subcat: "",
-      dateFrom: toISO(start), dateTo: toISO(end),
-      creditMin: "", creditMax: "", debitMin: "", debitMax: "", amountMin: "", amountMax: "",
-      kind: opts.kind || "",
-    };
-    state.txnSearch = "";
-    state.txnRangeField = "date";
+    let list = txnsInRange(start, end);
+    if (opts.bank) list = list.filter((t) => (t.bank || "").trim() === opts.bank);
+    if (opts.cat) list = list.filter((t) => (t.cat || "").trim().toLowerCase() === opts.cat.toLowerCase());
+    if (opts.kind === "credit") list = list.filter((t) => (parseFloat(t.credit) || 0) > 0);
+    if (opts.kind === "debit") list = list.filter((t) => (parseFloat(t.debit) || 0) > 0);
+
     let label;
     if (opts.bank) label = "🏦 " + opts.bank;
     else if (opts.cat) label = categoryIcon(opts.cat) + " " + opts.cat;
     else if (opts.kind === "credit") label = "Credit";
     else if (opts.kind === "debit") label = "Debit";
-    state.txnDrillLabel = label || null;
-    goToTab("transactions");
-    const searchEl = document.getElementById("txn-search");
-    if (searchEl) searchEl.value = "";
-    const rangeSel = document.getElementById("range-field-select");
-    if (rangeSel) rangeSel.value = "date";
-    renderRangeInputs();
+
+    const totalCredit = list.reduce((s, t) => s + (parseFloat(t.credit) || 0), 0);
+    const totalDebit = list.reduce((s, t) => s + (parseFloat(t.debit) || 0), 0);
+    let amtText, amtCls;
+    if (opts.kind === "credit") { amtText = formatINR(totalCredit); amtCls = "amt-pos"; }
+    else if (opts.kind === "debit") { amtText = formatINR(totalDebit); amtCls = "amt-neg"; }
+    else { const net = totalCredit - totalDebit; amtText = (net >= 0 ? "+" : "-") + formatINR(net); amtCls = net >= 0 ? "amt-pos" : "amt-neg"; }
+
+    document.getElementById("drill-title").textContent = label || "";
+    const amtEl = document.getElementById("drill-amt");
+    amtEl.textContent = amtText;
+    amtEl.className = "drill-total " + amtCls;
+
+    list.sort((a, b) => parseISO(b.date) - parseISO(a.date));
+    const container = document.getElementById("drill-list");
+    if (list.length === 0) {
+      container.innerHTML = `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions found.</div></div>`;
+    } else {
+      container.innerHTML = `
+        <div class="txn-col-hdr">
+          <div class="txn-date">Date</div>
+          <div class="txn-bank">Bank</div>
+          <div class="txn-cell-desc">Details</div>
+          <div class="txn-amount">Amount</div>
+        </div>` + list.map(txnRowHtml).join("");
+      container.querySelectorAll("[data-open-edit]").forEach((el) => {
+        el.addEventListener("click", () => openTxnDetail(el.dataset.openEdit));
+      });
+    }
+    openDrilldownScreen();
   }
 
   // ================= DASHBOARD =================
@@ -522,22 +555,11 @@
     fillSelect(document.getElementById("filter-subcat"), subcatOptionsFor(state.txnFilters.cat), "All Sub-categories", state.txnFilters.subcat);
   }
 
-  // Sum of what's currently listed, formatted the same way the tapped
-  // Dashboard amount was (net for a bank, credit-only or debit-only otherwise).
-  function drillHeaderAmount(list) {
-    const totalCredit = list.reduce((s, t) => s + (parseFloat(t.credit) || 0), 0);
-    const totalDebit = list.reduce((s, t) => s + (parseFloat(t.debit) || 0), 0);
-    if (state.txnFilters.kind === "credit") return formatINR(totalCredit);
-    if (state.txnFilters.kind === "debit") return formatINR(totalDebit);
-    const net = totalCredit - totalDebit;
-    return (net >= 0 ? "+" : "-") + formatINR(net);
-  }
-
   function updateFilterControlsUI() {
     const f = state.txnFilters;
     const anyActive = !!(f.bank || f.cat || f.subcat || f.dateFrom || f.dateTo ||
       f.creditMin || f.creditMax || f.debitMin || f.debitMax || f.amountMin || f.amountMax ||
-      f.kind || state.txnSearch || state.txnDrillLabel);
+      f.kind || state.txnSearch);
     const resetBtn = document.getElementById("btn-reset-filters");
     if (resetBtn) resetBtn.classList.toggle("hidden", !anyActive);
     const groupBtn = document.getElementById("btn-toggle-group");
@@ -587,16 +609,8 @@
       return;
     }
 
-    const drillBarHtml = state.txnDrillLabel ? `
-      <div class="drill-bar">
-        <div class="drill-label">${escapeHtml(state.txnDrillLabel)}</div>
-        <div class="drill-amt">${drillHeaderAmount(list)}</div>
-        <button class="drill-clear" data-clear-drill title="Clear">✕</button>
-      </div>` : "";
-
     if (list.length === 0) {
-      container.innerHTML = drillBarHtml + `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions match your filters.</div></div>`;
-      container.querySelectorAll("[data-clear-drill]").forEach((el) => el.addEventListener("click", resetTxnFilters));
+      container.innerHTML = `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions match your filters.</div></div>`;
       return;
     }
 
@@ -618,9 +632,8 @@
     } else {
       html = renderTransactionsGrouped(list);
     }
-    container.innerHTML = drillBarHtml + html;
+    container.innerHTML = html;
 
-    container.querySelectorAll("[data-clear-drill]").forEach((el) => el.addEventListener("click", resetTxnFilters));
     container.querySelectorAll("[data-open-edit]").forEach((el) => {
       el.addEventListener("click", () => openTxnDetail(el.dataset.openEdit));
     });
@@ -714,7 +727,6 @@
     state.txnSearch = "";
     state.txnRangeField = "";
     state.txnGroupByMonth = true;
-    state.txnDrillLabel = null;
     document.getElementById("txn-search").value = "";
     document.getElementById("range-field-select").value = "";
     renderRangeInputs();
