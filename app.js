@@ -235,6 +235,26 @@
     const container = document.getElementById("drill-list");
     if (list.length === 0) {
       container.innerHTML = `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions found.</div></div>`;
+    } else if (opts.bank) {
+      // Bank drill-down: the bank name is already in the header, so the Bank
+      // column is dropped and the freed space shows Debit and Credit as
+      // separate columns, with their totals above the column header.
+      container.innerHTML = `
+        <div class="txn-totals-row">
+          <div class="txn-date"></div>
+          <div class="txn-cell-desc">Total</div>
+          <div class="txn-num dr">${formatINR(totalDebit)}</div>
+          <div class="txn-num cr">${formatINR(totalCredit)}</div>
+        </div>
+        <div class="txn-col-hdr">
+          <div class="txn-date">Date</div>
+          <div class="txn-cell-desc">Details</div>
+          <div class="txn-num">Debit</div>
+          <div class="txn-num">Credit</div>
+        </div>` + list.map(txnRowHtmlBankView).join("");
+      container.querySelectorAll("[data-open-edit]").forEach((el) => {
+        el.addEventListener("click", () => openTxnDetail(el.dataset.openEdit));
+      });
     } else {
       container.innerHTML = `
         <div class="txn-col-hdr">
@@ -424,6 +444,19 @@
         <div class="txn-bank">${escapeHtml(t.bank || "—")}</div>
         <div class="txn-cell-desc">${escapeHtml((t.subcat && t.subcat.trim()) ? t.subcat.trim() : (t.description || "(no description)"))}</div>
         <div class="txn-amount" style="color:${isCredit ? "var(--green)" : "var(--red)"};">${formatINR(amt)}</div>
+      </div>`;
+  }
+
+  // Bank drill-down row: no Bank cell; Debit and Credit get their own columns.
+  function txnRowHtmlBankView(t) {
+    const credit = parseFloat(t.credit) || 0;
+    const debit = parseFloat(t.debit) || 0;
+    return `
+      <div class="txn-table-row" data-open-edit="${t.id}">
+        <div class="txn-date">${fmtDMonYY(t.date)}</div>
+        <div class="txn-cell-desc">${escapeHtml((t.subcat && t.subcat.trim()) ? t.subcat.trim() : (t.description || "(no description)"))}</div>
+        <div class="txn-num dr">${debit > 0 ? formatINR(debit) : ""}</div>
+        <div class="txn-num cr">${credit > 0 ? formatINR(credit) : ""}</div>
       </div>`;
   }
 

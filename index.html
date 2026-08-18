@@ -127,6 +127,13 @@
   .txn-bank{ width:52px; flex-shrink:0; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--secondary); }
   .txn-cell-desc{ flex:1; min-width:0; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .txn-amount{ width:84px; flex-shrink:0; text-align:right; font-size:12.5px; font-weight:700; }
+  /* Bank drill-down: no Bank column (bank is in the header), separate Debit/Credit columns */
+  .txn-num{ width:78px; flex-shrink:0; text-align:right; font-size:12.5px; font-weight:700; white-space:nowrap; }
+  .txn-num.dr{ color:var(--red); }
+  .txn-num.cr{ color:var(--green); }
+  .txn-totals-row{ display:flex; align-items:center; gap:6px; padding:10px 12px 2px 30px; }
+  .txn-totals-row .txn-cell-desc{ font-size:11px; text-transform:uppercase; letter-spacing:0.3px; color:var(--secondary); font-weight:600; }
+  .txn-totals-row .txn-num{ font-size:13.5px; font-weight:800; }
   .grp-header{ display:flex; align-items:center; gap:8px; padding:11px 16px; cursor:pointer; background:rgba(142,142,147,0.06); }
   .grp-header.year-hdr{ font-weight:700; }
   .grp-header.month-hdr{ padding-left:30px; background:rgba(142,142,147,0.03); font-weight:600; }
