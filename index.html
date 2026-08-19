@@ -84,16 +84,16 @@
   .search-bar input{ border:none; background:none; outline:none; flex:1; font-size:15px; color:var(--text);}
   .icon-toggle-btn{ background:none; border:1px solid var(--border); border-radius:8px; padding:5px 7px; font-size:14px; color:var(--secondary); cursor:pointer; flex-shrink:0; line-height:1; }
   .icon-toggle-btn.active{ background:rgba(16,185,129,0.15); border-color:var(--green); color:var(--green); }
+  .range-field-select-inline{
+    flex-shrink:0; width:84px; border:1px solid var(--border); background:var(--card); color:var(--text);
+    border-radius:8px; padding:5px 4px; font-size:11px; font-family:inherit;
+  }
   .filter-select-row{ display:flex; gap:6px; padding:0 16px 8px; }
   .filter-select-row select{
     flex:1; min-width:0; border:1px solid var(--border); background:var(--card); color:var(--text);
     border-radius:8px; padding:6px 4px; font-size:12px; font-family:inherit;
   }
   .range-filter-row{ display:flex; align-items:center; gap:6px; padding:0 16px 10px; flex-wrap:wrap; }
-  .range-filter-row select{
-    flex-shrink:0; width:112px; border:1px solid var(--border); background:var(--card); color:var(--text);
-    border-radius:8px; padding:6px 4px; font-size:12px; font-family:inherit;
-  }
   .range-inputs{ display:flex; align-items:center; gap:6px; flex:1; min-width:150px; }
   .range-inputs.hidden{ display:none; }
   .range-input{ width:0; flex:1; min-width:70px; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:8px; padding:6px 8px; font-size:12px; font-family:inherit; }
@@ -103,7 +103,9 @@
 
   .drill-topbar{ display:flex; align-items:center; gap:10px; padding:10px 16px 12px; }
   .drill-topbar .icon-btn{ font-size:22px; color:var(--secondary); flex-shrink:0; }
-  .drill-topbar .drill-name{ flex:1; min-width:0; font-size:19px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drill-titles{ flex:1; min-width:0; display:flex; flex-direction:column; }
+  .drill-titles .drill-name{ font-size:19px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .drill-titles .drill-period{ font-size:12.5px; color:var(--secondary); margin-top:1px; }
   .drill-topbar .drill-total{ font-size:19px; font-weight:800; text-align:right; flex-shrink:0; }
   .drill-total.amt-pos{ color:var(--green); }
   .drill-total.amt-neg{ color:var(--red); }
@@ -253,6 +255,13 @@
       <div class="search-bar">
         <span>🔍</span><input type="text" id="txn-search" placeholder="Search description, ref, bank, category">
         <button id="btn-toggle-group" class="icon-toggle-btn active" title="Group by month">📅</button>
+        <select id="range-field-select" class="range-field-select-inline">
+          <option value="">Range…</option>
+          <option value="date">Date</option>
+          <option value="credit">Credit</option>
+          <option value="debit">Debit</option>
+          <option value="amount">Amount</option>
+        </select>
       </div>
       <div class="filter-select-row">
         <select id="filter-bank"><option value="">All Banks</option></select>
@@ -260,13 +269,6 @@
         <select id="filter-subcat"><option value="">All Sub-categories</option></select>
       </div>
       <div class="range-filter-row">
-        <select id="range-field-select">
-          <option value="">Filter range…</option>
-          <option value="date">Date</option>
-          <option value="credit">Credit</option>
-          <option value="debit">Debit</option>
-          <option value="amount">Amount</option>
-        </select>
         <div id="range-inputs-wrap" class="range-inputs hidden"></div>
         <button id="btn-reset-filters" class="reset-filters-btn hidden">Reset</button>
       </div>
@@ -322,7 +324,10 @@
     <div class="screen-header">
       <div class="drill-topbar">
         <button class="icon-btn" id="drill-close">✕</button>
-        <div class="drill-name" id="drill-title"></div>
+        <div class="drill-titles">
+          <div class="drill-name" id="drill-title"></div>
+          <div class="drill-period" id="drill-period"></div>
+        </div>
         <div class="drill-total" id="drill-amt"></div>
       </div>
     </div>

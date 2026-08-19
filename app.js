@@ -206,18 +206,28 @@
   document.getElementById("drill-close").addEventListener("click", closeDrilldownScreen);
 
   function drillToTransactions(opts) {
-    const { start, end } = getPeriodRange();
+    const { start, end, label: periodLabel } = getPeriodRange();
     let list = txnsInRange(start, end);
     if (opts.bank) list = list.filter((t) => (t.bank || "").trim() === opts.bank);
-    if (opts.cat) list = list.filter((t) => (t.cat || "").trim().toLowerCase() === opts.cat.toLowerCase());
+    if (opts.cat === "Other" && opts.other) {
+      const others = opts.other.split("|");
+      list = list.filter((t) => others.includes((t.cat && t.cat.trim()) ? t.cat.trim() : "Uncategorized"));
+    } else if (opts.cat === "Uncategorized") {
+      list = list.filter((t) => !(t.cat && t.cat.trim()));
+    } else if (opts.cat) {
+      list = list.filter((t) => (t.cat || "").trim().toLowerCase() === opts.cat.toLowerCase());
+    }
     if (opts.kind === "credit") list = list.filter((t) => (parseFloat(t.credit) || 0) > 0);
     if (opts.kind === "debit") list = list.filter((t) => (parseFloat(t.debit) || 0) > 0);
 
     let label;
     if (opts.bank) label = "🏦 " + opts.bank;
+    else if (opts.cat === "Uncategorized") label = "❔ Uncategorized";
+    else if (opts.cat === "Other") label = "🔹 Other";
     else if (opts.cat) label = categoryIcon(opts.cat) + " " + opts.cat;
     else if (opts.kind === "credit") label = "Credit";
     else if (opts.kind === "debit") label = "Debit";
+    else label = "Net";
 
     const totalCredit = list.reduce((s, t) => s + (parseFloat(t.credit) || 0), 0);
     const totalDebit = list.reduce((s, t) => s + (parseFloat(t.debit) || 0), 0);
@@ -227,6 +237,7 @@
     else { const net = totalCredit - totalDebit; amtText = (net >= 0 ? "+" : "-") + formatINR(net); amtCls = net >= 0 ? "amt-pos" : "amt-neg"; }
 
     document.getElementById("drill-title").textContent = label || "";
+    document.getElementById("drill-period").textContent = periodLabel;
     const amtEl = document.getElementById("drill-amt");
     amtEl.textContent = amtText;
     amtEl.className = "drill-total " + amtCls;
@@ -327,15 +338,17 @@
       totals[key] = (totals[key] || 0) + amt;
     });
     let entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    let otherKeys = [];
     if (entries.length > 6) {
       const top = entries.slice(0, 5);
-      const otherSum = entries.slice(5).reduce((s, e) => s + e[1], 0);
+      otherKeys = entries.slice(5).map((e) => e[0]);
+      const otherSum = otherKeys.reduce((s, k) => s + totals[k], 0);
       entries = top.concat([["Other", otherSum]]);
     }
-    return entries;
+    return { entries, otherKeys };
   }
 
-  function renderDonutBlock(containerId, canvasId, entries, kind) {
+  function renderDonutBlock(containerId, canvasId, entries, kind, otherKeys) {
     const container = document.getElementById(containerId);
     if (entries.length === 0) {
       container.innerHTML = `<div class="empty-mini">No data for this period.</div>`;
@@ -344,12 +357,15 @@
     const legendHtml = entries.map(([cat, amt]) => {
       const color = cat === "Other" ? "#8E8E93" : categoryColor(cat);
       const icon = cat === "Other" ? "🔹" : categoryIcon(cat);
-      // "Other" folds several categories together, so it isn't drillable to a single category filter.
-      const clickAttrs = cat === "Other" ? "" : `data-drill data-drill-cat="${escapeHtml(cat)}" data-drill-kind="${kind}"`;
+      // "Other" folds several small categories together — still drillable,
+      // it just filters to that folded-in set instead of a single category.
+      const clickAttrs = cat === "Other"
+        ? `data-drill data-drill-cat="Other" data-drill-kind="${kind}" data-drill-other="${escapeHtml((otherKeys || []).join("|"))}"`
+        : `data-drill data-drill-cat="${escapeHtml(cat)}" data-drill-kind="${kind}"`;
       return `<div class="cat-legend-row">
         <div class="cat-bubble" style="background:${hexToRgba(color, 0.18)};">${icon}</div>
         <div class="name">${escapeHtml(cat)}</div>
-        <div class="amt ${cat === "Other" ? "" : "amt-click"}" ${clickAttrs}>${formatINR(amt)}</div>
+        <div class="amt amt-click" ${clickAttrs}>${formatINR(amt)}</div>
       </div>`;
     }).join("");
     container.innerHTML = `
@@ -400,7 +416,7 @@
         <div class="summary-card credit"><div class="lbl">Credit</div><div class="val amt-click" data-drill data-drill-kind="credit">${formatINR(totalCredit)}</div></div>
         <div class="summary-card debit"><div class="lbl">Debit</div><div class="val amt-click" data-drill data-drill-kind="debit">${formatINR(totalDebit)}</div></div>
       </div>
-      <div class="net-card"><div class="lbl">Net (${escapeHtml(label)})</div><div class="val" style="color:${net >= 0 ? "var(--green)" : "var(--red)"};">${net >= 0 ? "+" : "-"}${formatINR(net)}</div></div>
+      <div class="net-card"><div class="lbl">Net (${escapeHtml(label)})</div><div class="val amt-click" data-drill style="color:${net >= 0 ? "var(--green)" : "var(--red)"};">${net >= 0 ? "+" : "-"}${formatINR(net)}</div></div>
     `;
 
     const body = document.getElementById("dashboard-body");
@@ -410,12 +426,12 @@
 
     if (expenseChart) { expenseChart.destroy(); expenseChart = null; }
     if (incomeChart) { incomeChart.destroy(); incomeChart = null; }
-    const expenseEntries = buildCategoryBreakdown(inRange, "debit");
-    const incomeEntries = buildCategoryBreakdown(inRange, "credit");
-    expenseChart = renderDonutBlock("expense-donut-container", "expense-donut", expenseEntries, "debit");
-    incomeChart = renderDonutBlock("income-donut-container", "income-donut", incomeEntries, "credit");
+    const expenseBreak = buildCategoryBreakdown(inRange, "debit");
+    const incomeBreak = buildCategoryBreakdown(inRange, "credit");
+    expenseChart = renderDonutBlock("expense-donut-container", "expense-donut", expenseBreak.entries, "debit", expenseBreak.otherKeys);
+    incomeChart = renderDonutBlock("income-donut-container", "income-donut", incomeBreak.entries, "credit", incomeBreak.otherKeys);
 
-    // Any amount tapped above (bank / credit / debit / category) jumps to a
+    // Any amount tapped above (bank / credit / debit / category / net) jumps to a
     // pre-filtered Transactions view for this same period.
     body.querySelectorAll("[data-drill]").forEach((el) => {
       el.addEventListener("click", () => {
@@ -423,6 +439,7 @@
           bank: el.dataset.drillBank || "",
           cat: el.dataset.drillCat || "",
           kind: el.dataset.drillKind || "",
+          other: el.dataset.drillOther || "",
         });
       });
     });
@@ -658,9 +675,9 @@
           <div class="txn-cell-desc">Details</div>
           <div class="txn-amount">Amount</div>
         </div>` + list.map(txnRowHtml).join("");
-    } else if (f.subcat || !state.txnGroupByMonth) {
-      // A specific sub-category, or "group by month" turned off — skip the monthly
-      // breakdown (avoids a collapsed section holding just one transaction), list year-wise only.
+    } else if (!state.txnGroupByMonth) {
+      // "Group by month" turned off — list year-wise only (useful when a narrow
+      // sub-category filter would otherwise leave a month with just one transaction).
       html = renderYearOnlyGrouped(list);
     } else {
       html = renderTransactionsGrouped(list);
