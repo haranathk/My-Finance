@@ -1242,6 +1242,7 @@
     document.getElementById("google-api-key").value = localStorage.getItem(GOOGLE_API_KEY_KEY) || "";
   }
   loadGoogleCreds();
+  renderDriveSourceInfo();
 
   document.getElementById("btn-save-google-creds").addEventListener("click", () => {
     const clientId = document.getElementById("google-client-id").value.trim();
@@ -1254,6 +1255,7 @@
   });
 
   document.getElementById("btn-open-drive-setup").addEventListener("click", () => {
+    renderDriveSourceInfo();
     document.getElementById("drive-setup-overlay").classList.remove("hidden");
   });
   document.getElementById("drive-setup-sheet").querySelector('[data-action="close-drive-setup"]').addEventListener("click", () => {
@@ -1263,7 +1265,6 @@
     if (e.target.id === "drive-setup-overlay") e.currentTarget.classList.add("hidden");
   });
 
-  let driveTokenClient = null;
   let driveAccessToken = null;
   let pickerLoaded = false;
 
@@ -1306,6 +1307,43 @@
     fetchDriveFileAsCsv(file.id, file.mimeType, file.name);
   }
 
+  // Remembers the last file (and, for a spreadsheet, its tab) that was
+  // imported, so "Import from Google Drive" can go straight to it next time
+  // instead of reopening the picker. Google's restrictive drive.file scope
+  // doesn't reliably expose a file's folder path, so only the file name and
+  // sheet tab are kept — not a full folder path.
+  const DRIVE_SOURCE_KEY = "financeTrackerDriveSource";
+  function getSavedDriveSource() {
+    try { return JSON.parse(localStorage.getItem(DRIVE_SOURCE_KEY) || "null"); } catch (e) { return null; }
+  }
+  function saveDriveSource(src) {
+    localStorage.setItem(DRIVE_SOURCE_KEY, JSON.stringify(src));
+    renderDriveSourceInfo();
+  }
+  function clearDriveSource() {
+    localStorage.removeItem(DRIVE_SOURCE_KEY);
+    renderDriveSourceInfo();
+    showToast("Import source cleared — next import will ask you to pick a file");
+  }
+  function renderDriveSourceInfo() {
+    const el = document.getElementById("drive-source-info");
+    if (!el) return;
+    const src = getSavedDriveSource();
+    if (!src) {
+      el.innerHTML = `<div style="font-size:13px; color:var(--secondary); line-height:1.5;">No file remembered yet. Use "Import from Google Drive" once to pick one — it'll be reused automatically after that.</div>`;
+      return;
+    }
+    el.innerHTML = `<div class="detail-list">
+      <div class="detail-row"><div class="detail-label">File</div><div class="detail-value">${escapeHtml(src.fileName)}</div></div>
+      ${src.tabName ? `<div class="detail-row"><div class="detail-label">Sheet tab</div><div class="detail-value">${escapeHtml(src.tabName)}</div></div>` : ""}
+    </div>`;
+  }
+  function quickImportFromSavedSource(src) {
+    showToast("Re-importing from saved source…");
+    if (src.tabName) importDriveSheetTab(src.fileId, src.tabName, src.fileName);
+    else fetchDriveFileAsCsv(src.fileId, src.mimeType, src.fileName);
+  }
+
   function fetchDriveFileAsCsv(fileId, mimeType, name) {
     const isSheet = mimeType === "application/vnd.google-apps.spreadsheet";
     if (isSheet) {
@@ -1317,7 +1355,7 @@
         .then((data) => {
           const tabs = (data.sheets || []).map((s) => s.properties.title);
           if (tabs.length === 0) { showToast("No tabs found in this spreadsheet"); return; }
-          if (tabs.length === 1) { importDriveSheetTab(fileId, tabs[0]); return; }
+          if (tabs.length === 1) { importDriveSheetTab(fileId, tabs[0], name); return; }
           showSheetTabPicker(fileId, tabs, name);
         })
         .catch((err) => {
@@ -1333,7 +1371,10 @@
           if (!res.ok) throw new Error("Drive request failed (" + res.status + ")");
           return res.text();
         })
-        .then((text) => importCsvText(text))
+        .then((text) => {
+          importCsvText(text);
+          saveDriveSource({ fileId, fileName: name, mimeType, tabName: null });
+        })
         .catch((err) => {
           console.error(err);
           showToast("Failed to fetch file from Drive: " + err.message);
@@ -1341,7 +1382,7 @@
     }
   }
 
-  function importDriveSheetTab(fileId, tabName) {
+  function importDriveSheetTab(fileId, tabName, fileName) {
     showToast(`Importing "${tabName}"…`);
     fetch(`https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values/${encodeURIComponent(tabName)}`, {
       headers: { Authorization: "Bearer " + driveAccessToken },
@@ -1352,6 +1393,7 @@
         if (values.length === 0) { showToast(`Tab "${tabName}" is empty`); return; }
         const csv = values.map((row) => row.map(csvEscape).join(",")).join("\n");
         importCsvText(csv);
+        saveDriveSource({ fileId, fileName: fileName || "Google Sheet", mimeType: "application/vnd.google-apps.spreadsheet", tabName });
       })
       .catch((err) => {
         console.error(err);
@@ -1377,7 +1419,7 @@
     sheet.querySelectorAll("[data-tab-name]").forEach((el) => {
       el.addEventListener("click", () => {
         overlay.classList.add("hidden");
-        importDriveSheetTab(fileId, el.dataset.tabName);
+        importDriveSheetTab(fileId, el.dataset.tabName, fileName);
       });
     });
   }
@@ -1385,32 +1427,53 @@
     if (e.target.id === "drive-tab-overlay") e.currentTarget.classList.add("hidden");
   });
 
-  document.getElementById("btn-import-drive").addEventListener("click", async () => {
-    const clientId = localStorage.getItem(GOOGLE_CLIENT_ID_KEY);
-    const apiKey = localStorage.getItem(GOOGLE_API_KEY_KEY);
-    if (!clientId || !apiKey) {
-      showToast("First save your Google Client ID and API Key in Google Drive Setup, then try again");
-      document.getElementById("drive-setup-overlay").classList.remove("hidden");
-      return;
-    }
-    if (typeof google === "undefined" || !google.accounts) {
-      showToast("Google sign-in script hasn't loaded yet — check your internet connection and try again.");
-      return;
-    }
-    await ensurePickerLoaded();
-    if (!driveTokenClient) {
-      driveTokenClient = google.accounts.oauth2.initTokenClient({
+  // Shared "make sure we have Drive access, then do X" flow. A fresh token
+  // client is created per call (cheap) so each caller can supply its own
+  // onReady behavior — reused for both the quick "Import" button and the
+  // explicit "Choose Different File" action.
+  function withDriveAuth(onReady) {
+    return async () => {
+      const clientId = localStorage.getItem(GOOGLE_CLIENT_ID_KEY);
+      const apiKey = localStorage.getItem(GOOGLE_API_KEY_KEY);
+      if (!clientId || !apiKey) {
+        showToast("First save your Google Client ID and API Key in Google Drive Setup, then try again");
+        document.getElementById("drive-setup-overlay").classList.remove("hidden");
+        return;
+      }
+      if (typeof google === "undefined" || !google.accounts) {
+        showToast("Google sign-in script hasn't loaded yet — check your internet connection and try again.");
+        return;
+      }
+      await ensurePickerLoaded();
+      const client = google.accounts.oauth2.initTokenClient({
         client_id: clientId,
         scope: DRIVE_SCOPE,
         callback: (resp) => {
           if (resp.error) { showToast("Google sign-in failed: " + resp.error); return; }
           driveAccessToken = resp.access_token;
-          openDrivePicker();
+          onReady();
         },
       });
-    }
-    driveTokenClient.requestAccessToken({ prompt: driveAccessToken ? "" : "consent" });
-  });
+      client.requestAccessToken({ prompt: driveAccessToken ? "" : "consent" });
+    };
+  }
+
+  // Normal "Import from Google Drive": reuse the remembered file/tab if we
+  // have one, so most imports skip the picker entirely. First time (or after
+  // Clear), falls back to picking a file as before.
+  document.getElementById("btn-import-drive").addEventListener("click", withDriveAuth(() => {
+    const src = getSavedDriveSource();
+    if (src) quickImportFromSavedSource(src);
+    else openDrivePicker();
+  }));
+
+  // Explicit "Choose Different File" in Google Drive Setup — always opens
+  // the picker, regardless of any remembered source.
+  document.getElementById("btn-change-drive-source").addEventListener("click", withDriveAuth(() => {
+    document.getElementById("drive-setup-overlay").classList.add("hidden");
+    openDrivePicker();
+  }));
+  document.getElementById("btn-clear-drive-source").addEventListener("click", clearDriveSource);
 
   // ---------- Service worker ----------
   if ("serviceWorker" in navigator) {
