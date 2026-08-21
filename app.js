@@ -354,8 +354,25 @@
       container.innerHTML = `<div class="empty-mini">No data for this period.</div>`;
       return null;
     }
-    const legendHtml = entries.map(([cat, amt]) => {
-      const color = cat === "Other" ? "#8E8E93" : categoryColor(cat);
+    // Each category's base color comes from its name (so it tends to stay
+    // the same color across periods), but if two categories in THIS chart
+    // hash to the same palette slot, the runner-up is bumped to the next
+    // free slot — a plain hash-only assignment can collide, which made a
+    // period dominated by 2-3 colliding categories look like one solid ring.
+    const usedIdx = new Set();
+    const colors = entries.map(([cat]) => {
+      if (cat === "Other") return "#8E8E93";
+      let idx = hashStr(cat.toLowerCase()) % CATEGORY_PALETTE.length;
+      let tries = 0;
+      while (usedIdx.has(idx) && tries < CATEGORY_PALETTE.length) {
+        idx = (idx + 1) % CATEGORY_PALETTE.length;
+        tries++;
+      }
+      usedIdx.add(idx);
+      return CATEGORY_PALETTE[idx];
+    });
+    const legendHtml = entries.map(([cat, amt], i) => {
+      const color = colors[i];
       const icon = cat === "Other" ? "🔹" : categoryIcon(cat);
       // "Other" folds several small categories together — still drillable,
       // it just filters to that folded-in set instead of a single category.
@@ -373,7 +390,6 @@
         <div class="chart-wrap"><canvas id="${canvasId}"></canvas></div>
         <div class="cat-legend">${legendHtml}</div>
       </div>`;
-    const colors = entries.map(([cat]) => cat === "Other" ? "#8E8E93" : categoryColor(cat));
     const ctx = document.getElementById(canvasId);
     if (window.Chart && ctx) {
       return new Chart(ctx, {
