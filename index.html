@@ -119,6 +119,14 @@
   .detail-row:last-child{ border-bottom:none; }
   .detail-label{ color:var(--secondary); flex-shrink:0; }
   .detail-value{ font-weight:600; text-align:right; word-break:break-word; }
+  .media-loading{ font-size:12.5px; color:var(--secondary); padding:14px 0; }
+  .media-error{ font-size:12.5px; color:var(--red); padding:10px 0; text-align:center; line-height:1.6; }
+  .media-error button{ background:none; border:1px solid var(--border); color:var(--text); border-radius:8px; padding:3px 10px; font-size:12px; margin-left:6px; cursor:pointer; }
+  .detail-file-row{ display:flex; align-items:center; gap:10px; background:var(--card); border-radius:10px; padding:11px 14px; margin-top:12px; }
+  .detail-file-name{ flex:1; min-width:0; font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .detail-file-actions{ display:flex; gap:6px; flex-shrink:0; }
+  .detail-file-actions button{ background:rgba(16,185,129,0.15); color:var(--green); border:none; border-radius:8px; padding:6px 10px; font-size:12px; font-weight:600; cursor:pointer; }
+  .detail-file-actions button:last-child{ background:rgba(142,142,147,0.15); color:var(--text); }
 
   .txn-row{ display:flex; align-items:center; gap:12px; padding:9px 16px; cursor:pointer; }
   .txn-table-row{ display:flex; align-items:center; gap:6px; padding:10px 12px 10px 30px; cursor:pointer; border-bottom:0.5px solid var(--border); }

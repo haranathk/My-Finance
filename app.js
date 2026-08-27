@@ -814,6 +814,27 @@
       return `<div class="detail-row"><div class="detail-label">${escapeHtml(label)}</div><div class="detail-value">${escapeHtml(String(value))}</div></div>`;
     }
 
+    // Photo can be a legacy embedded data: URI, or (from a Google Sheet
+    // import) an AppSheet-style "Folder/filename.ext" reference that has to
+    // be resolved and fetched from Drive on demand.
+    const isPhotoDataUri = !!t.photoData && t.photoData.startsWith("data:");
+    const isPhotoRelPath = !!t.photoData && !isPhotoDataUri;
+    const photoHtml = isPhotoDataUri
+      ? `<div class="detail-photo"><img src="${t.photoData}"></div>`
+      : isPhotoRelPath
+        ? `<div class="detail-photo" id="detail-photo-slot"><div class="media-loading">Loading photo…</div></div>`
+        : "";
+
+    const fileHtml = t.file
+      ? `<div class="detail-file-row">
+          <div class="detail-file-name">📄 ${escapeHtml(t.file.split("/").pop())}</div>
+          <div class="detail-file-actions">
+            <button data-action="view-file">View</button>
+            <button data-action="save-file">Save to Files</button>
+          </div>
+        </div>`
+      : "";
+
     sheet.innerHTML = `
       <div class="sheet-header">
         <button data-action="close-detail">Close</button>
@@ -821,9 +842,10 @@
         <button class="save" data-action="edit-detail">Edit</button>
       </div>
       <div class="sheet-body">
-        ${t.photoData ? `<div class="detail-photo"><img src="${t.photoData}"></div>` : ""}
+        ${photoHtml}
         <div class="detail-amount ${isCredit ? "amt-pos" : "amt-neg"}">${isCredit ? "+" : "-"}${formatINR(amount)}</div>
         <div class="detail-type">${isCredit ? "Income (Credit)" : "Expense (Debit)"}</div>
+        ${fileHtml}
         <div class="detail-list">
           ${row("Date", fmtDMY(t.date))}
           ${row("Bank", t.bank)}
@@ -832,7 +854,6 @@
           ${row("Sub-category", t.subcat)}
           ${row("Reference No.", t.ref)}
           ${row("Key / Tag", t.key)}
-          ${row("File Reference", t.file)}
           ${row("Rate (gold/silver)", t.rate)}
           ${row("Weight (g)", t.weight)}
         </div>
@@ -843,6 +864,11 @@
       overlay.classList.add("hidden");
       openTxnSheet(id);
     });
+    if (t.file) {
+      sheet.querySelector('[data-action="view-file"]').addEventListener("click", () => viewOrSaveDriveFile(t.file, "view"));
+      sheet.querySelector('[data-action="save-file"]').addEventListener("click", () => viewOrSaveDriveFile(t.file, "save"));
+    }
+    if (isPhotoRelPath) loadDrivePhotoIntoSlot(t.photoData);
   }
   document.getElementById("txn-detail-overlay").addEventListener("click", (e) => {
     if (e.target.id === "txn-detail-overlay") e.currentTarget.classList.add("hidden");
@@ -1220,7 +1246,7 @@
           cat: iCat >= 0 ? (r[iCat] || "").trim() : "",
           subcat: iSubcat >= 0 ? (r[iSubcat] || "").trim() : "",
           key: iKey >= 0 ? (r[iKey] || "").trim() : "",
-          photoData: iPhoto >= 0 && r[iPhoto] && r[iPhoto].startsWith("data:") ? r[iPhoto] : null,
+          photoData: iPhoto >= 0 ? (r[iPhoto] || "").trim() : "",
           file: iFile >= 0 ? (r[iFile] || "").trim() : "",
           rate: iRate >= 0 ? parseAmount(r[iRate]) || "" : "",
           weight: iWeight >= 0 ? parseAmount(r[iWeight]) || "" : "",
@@ -1248,10 +1274,124 @@
     reader.readAsText(file);
   });
 
+  // ---------- Resolving AppSheet-style "Folder/filename.ext" paths ----------
+  // AppSheet stores uploads as a path relative to the Sheet's own folder, e.g.
+  // "Bank_Images/Gold ring.Photo.024136.jpg". There's no file ID in that
+  // string, so each lookup has to: find the Sheet's parent folder, find the
+  // named subfolder inside it, then find the named file inside that. Results
+  // are cached in memory for the session so repeat views of the same photo
+  // don't re-run the lookup.
+  let driveSheetParentFolderId = null;
+  const driveFolderIdCache = {}; // folder name -> folder id
+  const driveFileInfoCache = {}; // "Folder/name" -> { id, mimeType, name }
+
+  async function driveApiGet(url) {
+    const res = await fetch(url, { headers: { Authorization: "Bearer " + driveAccessToken } });
+    if (!res.ok) throw new Error("Drive request failed (" + res.status + ")");
+    return res.json();
+  }
+
+  async function getSheetParentFolderId() {
+    if (driveSheetParentFolderId) return driveSheetParentFolderId;
+    const src = getSavedDriveSource();
+    if (!src || !src.tabName) throw new Error("Import a Google Sheet first (Settings ▸ Import from Google Drive)");
+    const data = await driveApiGet(`https://www.googleapis.com/drive/v3/files/${src.fileId}?fields=parents`);
+    const parentId = data.parents && data.parents[0];
+    if (!parentId) throw new Error("Couldn't find the Sheet's folder in Drive");
+    driveSheetParentFolderId = parentId;
+    return parentId;
+  }
+
+  async function getNamedSubfolderId(folderName) {
+    if (driveFolderIdCache[folderName]) return driveFolderIdCache[folderName];
+    const parentId = await getSheetParentFolderId();
+    const q = `'${parentId}' in parents and name='${folderName.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const data = await driveApiGet(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`);
+    const folder = data.files && data.files[0];
+    if (!folder) throw new Error(`Folder "${folderName}" not found next to your Sheet`);
+    driveFolderIdCache[folderName] = folder.id;
+    return folder.id;
+  }
+
+  async function resolveDriveFileByRelativePath(relPath) {
+    if (driveFileInfoCache[relPath]) return driveFileInfoCache[relPath];
+    const slash = relPath.indexOf("/");
+    if (slash < 0) throw new Error(`Unexpected file reference: "${relPath}"`);
+    const folderName = relPath.slice(0, slash);
+    const fileName = relPath.slice(slash + 1);
+    const folderId = await getNamedSubfolderId(folderName);
+    const q = `'${folderId}' in parents and name='${fileName.replace(/'/g, "\\'")}' and trashed=false`;
+    const data = await driveApiGet(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)`);
+    const file = data.files && data.files[0];
+    if (!file) throw new Error(`"${fileName}" not found in ${folderName}`);
+    driveFileInfoCache[relPath] = file;
+    return file;
+  }
+
+  async function fetchDriveFileBlob(fileId) {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { Authorization: "Bearer " + driveAccessToken },
+    });
+    if (!res.ok) throw new Error("Drive request failed (" + res.status + ")");
+    return res.blob();
+  }
+
+  // Loads a Drive-relative-path photo into the detail sheet's photo slot.
+  function loadDrivePhotoIntoSlot(relPath) {
+    withDriveAuth(async () => {
+      const slot = document.getElementById("detail-photo-slot");
+      if (!slot) return;
+      try {
+        const info = await resolveDriveFileByRelativePath(relPath);
+        const blob = await fetchDriveFileBlob(info.id);
+        slot.innerHTML = `<img src="${URL.createObjectURL(blob)}">`;
+      } catch (err) {
+        console.error(err);
+        slot.innerHTML = `<div class="media-error">⚠️ ${escapeHtml(err.message)} <button data-retry-photo>Retry</button></div>`;
+        const retryBtn = slot.querySelector("[data-retry-photo]");
+        if (retryBtn) retryBtn.addEventListener("click", () => loadDrivePhotoIntoSlot(relPath));
+      }
+    })();
+  }
+
+  // "View" opens the file in a new tab; "save" hands it to the native share
+  // sheet (or falls back to a browser download) so it can be kept in Files.
+  function viewOrSaveDriveFile(relPath, mode) {
+    withDriveAuth(async () => {
+      try {
+        showToast(mode === "view" ? "Opening file…" : "Preparing file…");
+        const info = await resolveDriveFileByRelativePath(relPath);
+        const blob = await fetchDriveFileBlob(info.id);
+        const fileName = relPath.slice(relPath.indexOf("/") + 1);
+        if (mode === "view") {
+          window.open(URL.createObjectURL(blob), "_blank");
+        } else {
+          const fileObj = new File([blob], fileName, { type: info.mimeType || blob.type });
+          if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+            await navigator.share({ files: [fileObj], title: fileName });
+          } else {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = fileName;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 30000);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        showToast("Couldn't load file: " + err.message);
+      }
+    })();
+  }
+
   // ---------- Google Drive Import ----------
   const GOOGLE_CLIENT_ID_KEY = "financeTrackerGoogleClientId";
   const GOOGLE_API_KEY_KEY = "financeTrackerGoogleApiKey";
-  const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+  // drive.file alone only grants access to files the user picked via the
+  // Picker UI. Resolving "Bank_Images/xyz.jpg"-style relative paths requires
+  // looking up a folder by name and searching inside it — drive.readonly is
+  // needed for that.
+  const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 
   function loadGoogleCreds() {
     document.getElementById("google-client-id").value = localStorage.getItem(GOOGLE_CLIENT_ID_KEY) || "";
