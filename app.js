@@ -188,6 +188,7 @@
     if (state.activeTab === "dashboard") renderDashboard();
     else if (state.activeTab === "transactions") renderTransactions();
     else if (state.activeTab === "rentals") renderRentals();
+    else if (state.activeTab === "gold") renderGold();
   }
 
   // ---------- Dashboard drill-down screen ----------
@@ -1141,6 +1142,89 @@
     if (e.target.id === "tenant-sheet-overlay") e.currentTarget.classList.add("hidden");
   });
 
+  // ================= GOLD =================
+  // Rounds to 3 decimal places and drops trailing zeros (avoids float noise
+  // like 189.16799999999998 when summing weights), matching how the weight
+  // was originally entered.
+  function fmtGrams(n) {
+    const r = Math.round((parseFloat(n) || 0) * 1000) / 1000;
+    return String(r);
+  }
+
+  function renderGold() {
+    const items = state.txns.filter((t) =>
+      (t.cat || "").trim().toLowerCase() === "fashion" &&
+      (t.subcat || "").trim().toLowerCase() === "gold"
+    );
+    const body = document.getElementById("gold-body");
+    if (items.length === 0) {
+      body.innerHTML = `<div class="empty-state"><div class="glyph">💍</div><div>No gold items yet. Add a transaction with category "Fashion" and sub-category "Gold".</div></div>`;
+      return;
+    }
+
+    const byYear = {};
+    items.forEach((t) => {
+      const y = parseISO(t.date).getFullYear();
+      if (!byYear[y]) byYear[y] = { totalWeight: 0, txns: [] };
+      byYear[y].totalWeight += parseFloat(t.weight) || 0;
+      byYear[y].txns.push(t);
+    });
+    const years = Object.keys(byYear).map(Number).sort((a, b) => b - a);
+
+    let html = "";
+    let slotCounter = 0;
+    const photoJobs = []; // { slotId, relPath }
+    years.forEach((y) => {
+      const info = byYear[y];
+      info.txns.sort((a, b) => parseISO(b.date) - parseISO(a.date));
+      html += `<div class="gold-year-hdr"><div class="gold-year">${y}</div><div class="gold-year-weight">${fmtGrams(info.totalWeight)}</div></div>`;
+      info.txns.forEach((t) => {
+        const amt = (parseFloat(t.debit) || 0) > 0 ? parseFloat(t.debit) : (parseFloat(t.credit) || 0);
+        const isDataUri = t.photoData && t.photoData.startsWith("data:");
+        const isRelPath = t.photoData && !isDataUri;
+        let thumbHtml = "", thumbIdAttr = "";
+        if (isDataUri) {
+          thumbHtml = `<img src="${t.photoData}">`;
+        } else if (isRelPath) {
+          const slotId = `gold-photo-${slotCounter++}`;
+          thumbIdAttr = ` id="${slotId}"`;
+          photoJobs.push({ slotId, relPath: t.photoData });
+        } else {
+          thumbHtml = `<div class="gold-thumb-placeholder">💍</div>`;
+        }
+        const subtitle = (t.weight && t.rate) ? `${t.weight} Grams @ ₹${t.rate} per Gram` : "";
+        html += `
+          <div class="gold-row" data-open-gold="${t.id}">
+            <div class="gold-thumb"${thumbIdAttr}>${thumbHtml}</div>
+            <div class="gold-main">
+              <div class="gold-name">${escapeHtml(t.description || "(no description)")}</div>
+              ${subtitle ? `<div class="gold-sub">${escapeHtml(subtitle)}</div>` : ""}
+            </div>
+            <div class="gold-right">
+              <div class="gold-amt">${formatINR(amt)}</div>
+              ${t.file ? `<button class="gold-file-btn" data-view-file="${t.id}">📄</button>` : ""}
+            </div>
+          </div>`;
+      });
+    });
+    body.innerHTML = html;
+
+    body.querySelectorAll("[data-open-gold]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        if (e.target.closest("[data-view-file]")) return;
+        openTxnDetail(el.dataset.openGold);
+      });
+    });
+    body.querySelectorAll("[data-view-file]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const t = state.txns.find((x) => x.id === el.dataset.viewFile);
+        if (t && t.file) viewOrSaveDriveFile(t.file, "view");
+      });
+    });
+    photoJobs.forEach((job) => loadDrivePhotoIntoSlot(job.relPath, job.slotId));
+  }
+
   // ================= SETTINGS =================
   function applyDarkMode(on) {
     document.body.classList.toggle("dark", on);
@@ -1336,10 +1420,13 @@
     return res.blob();
   }
 
-  // Loads a Drive-relative-path photo into the detail sheet's photo slot.
-  function loadDrivePhotoIntoSlot(relPath) {
+  // Loads a Drive-relative-path photo into any element by id — used for the
+  // detail sheet's single photo slot and for multiple thumbnails in a list
+  // (e.g. the Gold view).
+  function loadDrivePhotoIntoSlot(relPath, slotId) {
+    slotId = slotId || "detail-photo-slot";
     withDriveAuth(async () => {
-      const slot = document.getElementById("detail-photo-slot");
+      const slot = document.getElementById(slotId);
       if (!slot) return;
       try {
         const info = await resolveDriveFileByRelativePath(relPath);
@@ -1349,7 +1436,7 @@
         console.error(err);
         slot.innerHTML = `<div class="media-error">⚠️ ${escapeHtml(err.message)} <button data-retry-photo>Retry</button></div>`;
         const retryBtn = slot.querySelector("[data-retry-photo]");
-        if (retryBtn) retryBtn.addEventListener("click", () => loadDrivePhotoIntoSlot(relPath));
+        if (retryBtn) retryBtn.addEventListener("click", () => loadDrivePhotoIntoSlot(relPath, slotId));
       }
     })();
   }

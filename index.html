@@ -128,6 +128,21 @@
   .detail-file-actions button{ background:rgba(16,185,129,0.15); color:var(--green); border:none; border-radius:8px; padding:6px 10px; font-size:12px; font-weight:600; cursor:pointer; }
   .detail-file-actions button:last-child{ background:rgba(142,142,147,0.15); color:var(--text); }
 
+  .gold-year-hdr{ display:flex; align-items:center; justify-content:space-between; padding:16px 16px 8px; }
+  .gold-year{ font-size:22px; font-weight:800; }
+  .gold-year-weight{ background:rgba(142,142,147,0.22); color:var(--text); font-size:13px; font-weight:600; padding:4px 12px; border-radius:20px; }
+  .gold-row{ display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:0.5px solid var(--border); cursor:pointer; }
+  .gold-row:active{ background:rgba(142,142,147,0.08); }
+  .gold-thumb{ width:64px; height:64px; border-radius:10px; overflow:hidden; flex-shrink:0; background:var(--card); display:flex; align-items:center; justify-content:center; font-size:24px; }
+  .gold-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .gold-thumb-placeholder{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  .gold-main{ flex:1; min-width:0; }
+  .gold-name{ font-size:16px; font-weight:700; margin-bottom:3px; }
+  .gold-sub{ font-size:13px; color:var(--secondary); }
+  .gold-right{ display:flex; flex-direction:column; align-items:flex-end; gap:8px; flex-shrink:0; }
+  .gold-amt{ font-size:16px; font-weight:800; color:#3B82F6; }
+  .gold-file-btn{ background:none; border:none; font-size:16px; color:var(--secondary); cursor:pointer; padding:0; line-height:1; }
+
   .txn-row{ display:flex; align-items:center; gap:12px; padding:9px 16px; cursor:pointer; }
   .txn-table-row{ display:flex; align-items:center; gap:6px; padding:10px 12px 10px 30px; cursor:pointer; border-bottom:0.5px solid var(--border); }
   .txn-table-row:active{ background:rgba(142,142,147,0.08); }
@@ -298,6 +313,14 @@
     <div class="screen-body" id="rentals-body"></div>
   </div>
 
+  <!-- GOLD (Fashion / Gold sub-category, grouped by year) -->
+  <div class="screen" id="screen-gold">
+    <div class="screen-header">
+      <div class="topbar"><div class="page-title">Gold</div></div>
+    </div>
+    <div class="screen-body" id="gold-body"></div>
+  </div>
+
   <!-- SETTINGS -->
   <div class="screen" id="screen-settings">
     <div class="screen-header">
@@ -346,6 +369,7 @@
     <button class="tab active" data-tab="dashboard"><span class="ti">📊</span><span class="tl">Dashboard</span></button>
     <button class="tab" data-tab="transactions"><span class="ti">💳</span><span class="tl">Txns</span></button>
     <button class="tab" data-tab="rentals"><span class="ti">🏠</span><span class="tl">Rentals</span></button>
+    <button class="tab" data-tab="gold"><span class="ti">💍</span><span class="tl">Gold</span></button>
     <button class="tab" data-tab="settings"><span class="ti">⚙️</span><span class="tl">Settings</span></button>
   </div>
 </div>
