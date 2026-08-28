@@ -1188,6 +1188,7 @@
         } else if (isRelPath) {
           const slotId = `gold-photo-${slotCounter++}`;
           thumbIdAttr = ` id="${slotId}"`;
+          thumbHtml = `<div class="gold-thumb-placeholder">💍</div>`; // replaced once the real photo loads
           photoJobs.push({ slotId, relPath: t.photoData });
         } else {
           thumbHtml = `<div class="gold-thumb-placeholder">💍</div>`;
@@ -1222,7 +1223,7 @@
         if (t && t.file) viewOrSaveDriveFile(t.file, "view");
       });
     });
-    photoJobs.forEach((job) => loadDrivePhotoIntoSlot(job.relPath, job.slotId));
+    loadDrivePhotosIntoSlots(photoJobs);
   }
 
   // ================= SETTINGS =================
@@ -1420,24 +1421,48 @@
     return res.blob();
   }
 
-  // Loads a Drive-relative-path photo into any element by id — used for the
-  // detail sheet's single photo slot and for multiple thumbnails in a list
-  // (e.g. the Gold view).
+  // Fetches one photo into a slot, assuming a valid driveAccessToken already
+  // exists (caller is responsible for that — see loadDrivePhotoIntoSlot and
+  // loadDrivePhotosIntoSlots below). "compact" renders a tap-to-retry icon
+  // instead of the full error text + button, for small list thumbnails.
+  async function loadPhotoIntoSlotWithToken(slotId, relPath, compact) {
+    const slot = document.getElementById(slotId);
+    if (!slot) return;
+    try {
+      const info = await resolveDriveFileByRelativePath(relPath);
+      const blob = await fetchDriveFileBlob(info.id);
+      slot.innerHTML = `<img src="${URL.createObjectURL(blob)}">`;
+    } catch (err) {
+      console.error(err);
+      if (compact) {
+        slot.innerHTML = `<div class="gold-thumb-placeholder" data-retry-photo title="${escapeHtml(err.message)}">⚠️</div>`;
+      } else {
+        slot.innerHTML = `<div class="media-error">⚠️ ${escapeHtml(err.message)} <button data-retry-photo>Retry</button></div>`;
+      }
+      const retryEl = slot.querySelector("[data-retry-photo]");
+      if (retryEl) retryEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        loadPhotoIntoSlotWithToken(slotId, relPath, compact);
+      });
+    }
+  }
+
+  // Loads a single Drive-relative-path photo into an element by id — used
+  // for the transaction detail sheet's one photo slot.
   function loadDrivePhotoIntoSlot(relPath, slotId) {
     slotId = slotId || "detail-photo-slot";
-    withDriveAuth(async () => {
-      const slot = document.getElementById(slotId);
-      if (!slot) return;
-      try {
-        const info = await resolveDriveFileByRelativePath(relPath);
-        const blob = await fetchDriveFileBlob(info.id);
-        slot.innerHTML = `<img src="${URL.createObjectURL(blob)}">`;
-      } catch (err) {
-        console.error(err);
-        slot.innerHTML = `<div class="media-error">⚠️ ${escapeHtml(err.message)} <button data-retry-photo>Retry</button></div>`;
-        const retryBtn = slot.querySelector("[data-retry-photo]");
-        if (retryBtn) retryBtn.addEventListener("click", () => loadDrivePhotoIntoSlot(relPath, slotId));
-      }
+    withDriveAuth(() => loadPhotoIntoSlotWithToken(slotId, relPath, false))();
+  }
+
+  // Loads several thumbnails (e.g. every row in the Gold view) with a SINGLE
+  // sign-in/token request shared across all of them, then fetches each
+  // concurrently. Requesting a separate token per thumbnail (the original
+  // approach) fires overlapping Google sign-in requests that mostly fail,
+  // which is why most rows were falling back to the placeholder icon.
+  function loadDrivePhotosIntoSlots(jobs) {
+    if (!jobs || jobs.length === 0) return;
+    withDriveAuth(() => {
+      jobs.forEach((job) => loadPhotoIntoSlotWithToken(job.slotId, job.relPath, true));
     })();
   }
 
