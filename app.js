@@ -821,7 +821,7 @@
     const isPhotoDataUri = !!t.photoData && t.photoData.startsWith("data:");
     const isPhotoRelPath = !!t.photoData && !isPhotoDataUri;
     const photoHtml = isPhotoDataUri
-      ? `<div class="detail-photo"><img src="${t.photoData}"></div>`
+      ? `<div class="detail-photo" data-view-photo><img src="${t.photoData}"></div>`
       : isPhotoRelPath
         ? `<div class="detail-photo" id="detail-photo-slot"><div class="media-loading">Loading photo…</div></div>`
         : "";
@@ -869,10 +869,40 @@
       sheet.querySelector('[data-action="view-file"]').addEventListener("click", () => viewOrSaveDriveFile(t.file, "view"));
       sheet.querySelector('[data-action="save-file"]').addEventListener("click", () => viewOrSaveDriveFile(t.file, "save"));
     }
-    if (isPhotoRelPath) loadDrivePhotoIntoSlot(t.photoData);
+    const dataUriPhotoEl = sheet.querySelector("[data-view-photo]");
+    if (dataUriPhotoEl) {
+      dataUriPhotoEl.addEventListener("click", () => {
+        const img = dataUriPhotoEl.querySelector("img");
+        if (img) openPhotoViewer(img.src);
+      });
+    }
+    if (isPhotoRelPath) {
+      loadDrivePhotoIntoSlot(t.photoData);
+      const slotEl = document.getElementById("detail-photo-slot");
+      if (slotEl) {
+        slotEl.addEventListener("click", () => {
+          const img = slotEl.querySelector("img");
+          if (img) openPhotoViewer(img.src);
+        });
+      }
+    }
   }
   document.getElementById("txn-detail-overlay").addEventListener("click", (e) => {
     if (e.target.id === "txn-detail-overlay") e.currentTarget.classList.add("hidden");
+  });
+
+  // Full-screen photo viewer — always opened from an <img> already on screen
+  // (a loaded thumbnail or the detail view's photo), so it's an instant,
+  // no-network, no-auth zoom rather than a fresh Drive fetch.
+  function openPhotoViewer(src) {
+    document.getElementById("photo-viewer-img").src = src;
+    document.getElementById("photo-viewer-overlay").classList.remove("hidden");
+  }
+  document.getElementById("photo-viewer-close").addEventListener("click", () => {
+    document.getElementById("photo-viewer-overlay").classList.add("hidden");
+  });
+  document.getElementById("photo-viewer-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "photo-viewer-overlay") e.currentTarget.classList.add("hidden");
   });
 
   // ================= ADD / EDIT TRANSACTION SHEET =================
@@ -1221,6 +1251,12 @@
         e.stopPropagation();
         const t = state.txns.find((x) => x.id === el.dataset.viewFile);
         if (t && t.file) viewOrSaveDriveFile(t.file, "view");
+      });
+    });
+    body.querySelectorAll(".gold-thumb").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        const img = el.querySelector("img");
+        if (img) { e.stopPropagation(); openPhotoViewer(img.src); }
       });
     });
     loadDrivePhotosIntoSlots(photoJobs);
@@ -1701,6 +1737,11 @@
   // explicit "Choose Different File" action.
   function withDriveAuth(onReady) {
     return async () => {
+      // Already signed in this session — just proceed, no repeat prompt.
+      // (Previously this always called requestAccessToken, which can flash
+      // a brief sign-in/redirect screen even in "silent" mode — visible as
+      // an unwanted permission screen on every single photo/file tap.)
+      if (driveAccessToken) { onReady(); return; }
       const clientId = localStorage.getItem(GOOGLE_CLIENT_ID_KEY);
       const apiKey = localStorage.getItem(GOOGLE_API_KEY_KEY);
       if (!clientId || !apiKey) {
@@ -1722,7 +1763,7 @@
           onReady();
         },
       });
-      client.requestAccessToken({ prompt: driveAccessToken ? "" : "consent" });
+      client.requestAccessToken({ prompt: "consent" });
     };
   }
 
