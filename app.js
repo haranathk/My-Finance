@@ -823,7 +823,7 @@
     const photoHtml = isPhotoDataUri
       ? `<div class="detail-photo" data-view-photo><img src="${t.photoData}"></div>`
       : isPhotoRelPath
-        ? `<div class="detail-photo" id="detail-photo-slot">${driveAccessToken ? `<div class="media-loading">Loading photo…</div>` : `<div class="media-loading">Tap to load photo</div>`}</div>`
+        ? `<div class="detail-photo" id="detail-photo-slot"><div class="media-loading">Loading photo…</div></div>`
         : "";
 
     const fileHtml = t.file
@@ -877,7 +877,7 @@
       });
     }
     if (isPhotoRelPath) {
-      if (driveAccessToken) loadDrivePhotoIntoSlot(t.photoData);
+      loadDrivePhotoIntoSlot(t.photoData);
       const slotEl = document.getElementById("detail-photo-slot");
       if (slotEl) {
         slotEl.addEventListener("click", () => {
@@ -1262,12 +1262,12 @@
         if (relPath) { e.stopPropagation(); loadAndViewPhoto(el.id, relPath); }
       });
     });
-    // Only fetch thumbnails automatically if we're already signed in to
-    // Drive this session — otherwise just opening this tab would trigger a
-    // sign-in prompt. With no existing session, thumbnails stay as
-    // placeholders until tapped (which loads that one photo, then shows it
-    // full-screen).
-    if (driveAccessToken) loadDrivePhotosIntoSlots(photoJobs);
+    // Auto-load every thumbnail on open (one sign-in prompt the first time
+    // Drive is used this session, none after — see withDriveAuth). The
+    // per-thumbnail click handler above still applies once loaded, for
+    // opening the full-screen viewer, and still retries a specific photo
+    // on tap if it errored out.
+    loadDrivePhotosIntoSlots(photoJobs);
   }
 
   // ================= SETTINGS =================
