@@ -823,7 +823,7 @@
     const photoHtml = isPhotoDataUri
       ? `<div class="detail-photo" data-view-photo><img src="${t.photoData}"></div>`
       : isPhotoRelPath
-        ? `<div class="detail-photo" id="detail-photo-slot"><div class="media-loading">Loading photo…</div></div>`
+        ? `<div class="detail-photo" id="detail-photo-slot">${driveAccessToken ? `<div class="media-loading">Loading photo…</div>` : `<div class="media-loading">Tap to load photo</div>`}</div>`
         : "";
 
     const fileHtml = t.file
@@ -877,12 +877,13 @@
       });
     }
     if (isPhotoRelPath) {
-      loadDrivePhotoIntoSlot(t.photoData);
+      if (driveAccessToken) loadDrivePhotoIntoSlot(t.photoData);
       const slotEl = document.getElementById("detail-photo-slot");
       if (slotEl) {
         slotEl.addEventListener("click", () => {
           const img = slotEl.querySelector("img");
-          if (img) openPhotoViewer(img.src);
+          if (img) { openPhotoViewer(img.src); return; }
+          loadAndViewPhoto("detail-photo-slot", t.photoData);
         });
       }
     }
@@ -1217,7 +1218,7 @@
           thumbHtml = `<img src="${t.photoData}">`;
         } else if (isRelPath) {
           const slotId = `gold-photo-${slotCounter++}`;
-          thumbIdAttr = ` id="${slotId}"`;
+          thumbIdAttr = ` id="${slotId}" data-rel-path="${escapeHtml(t.photoData)}"`;
           thumbHtml = `<div class="gold-thumb-placeholder">💍</div>`; // replaced once the real photo loads
           photoJobs.push({ slotId, relPath: t.photoData });
         } else {
@@ -1256,10 +1257,17 @@
     body.querySelectorAll(".gold-thumb").forEach((el) => {
       el.addEventListener("click", (e) => {
         const img = el.querySelector("img");
-        if (img) { e.stopPropagation(); openPhotoViewer(img.src); }
+        if (img) { e.stopPropagation(); openPhotoViewer(img.src); return; }
+        const relPath = el.dataset.relPath;
+        if (relPath) { e.stopPropagation(); loadAndViewPhoto(el.id, relPath); }
       });
     });
-    loadDrivePhotosIntoSlots(photoJobs);
+    // Only fetch thumbnails automatically if we're already signed in to
+    // Drive this session — otherwise just opening this tab would trigger a
+    // sign-in prompt. With no existing session, thumbnails stay as
+    // placeholders until tapped (which loads that one photo, then shows it
+    // full-screen).
+    if (driveAccessToken) loadDrivePhotosIntoSlots(photoJobs);
   }
 
   // ================= SETTINGS =================
@@ -1499,6 +1507,18 @@
     if (!jobs || jobs.length === 0) return;
     withDriveAuth(() => {
       jobs.forEach((job) => loadPhotoIntoSlotWithToken(job.slotId, job.relPath, true));
+    })();
+  }
+
+  // For a placeholder that hasn't been loaded yet: fetch it (prompting to
+  // sign in only now, since the user explicitly tapped it) then open the
+  // full-screen viewer as soon as it's ready.
+  function loadAndViewPhoto(slotId, relPath) {
+    withDriveAuth(async () => {
+      await loadPhotoIntoSlotWithToken(slotId, relPath, true);
+      const slot = document.getElementById(slotId);
+      const img = slot && slot.querySelector("img");
+      if (img) openPhotoViewer(img.src);
     })();
   }
 
