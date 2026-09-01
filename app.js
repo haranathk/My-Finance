@@ -73,6 +73,8 @@
     },
     txnGroupByMonth: true,
     txnRangeField: "", // "" | "date" | "credit" | "debit" | "amount" — which range filter is active
+    txnSort: { field: "date", dir: "desc" }, // applies within each open Year/Month group
+    drillSort: { field: "date", dir: "desc" }, // for the Dashboard drilldown screen's list
     editingId: null,
   };
 
@@ -112,6 +114,34 @@
 
   function escapeHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ---------- Shared sortable column header (Date / Bank / Amount) ----------
+  // Used by the Txns view (within each open Year/Month group), its search
+  // flat-list, and the Dashboard drilldown screen. "Details" isn't sortable.
+  function txnAmount(t) {
+    const c = parseFloat(t.credit) || 0;
+    return c > 0 ? c : (parseFloat(t.debit) || 0);
+  }
+  function compareTxns(a, b, sort) {
+    let av, bv;
+    if (sort.field === "bank") { av = (a.bank || "").toLowerCase(); bv = (b.bank || "").toLowerCase(); }
+    else if (sort.field === "amount") { av = txnAmount(a); bv = txnAmount(b); }
+    else { av = parseISO(a.date).getTime(); bv = parseISO(b.date).getTime(); }
+    const cmp = typeof av === "string" ? av.localeCompare(bv) : av - bv;
+    return sort.dir === "asc" ? cmp : -cmp;
+  }
+  function sortArrow(sort, field) {
+    return sort.field === field ? (sort.dir === "asc" ? " ▲" : " ▼") : "";
+  }
+  function txnColHeaderHtml(sort) {
+    return `
+      <div class="txn-col-hdr">
+        <div class="txn-date sortable" data-sort-field="date">Date${sortArrow(sort, "date")}</div>
+        <div class="txn-bank sortable" data-sort-field="bank">Bank${sortArrow(sort, "bank")}</div>
+        <div class="txn-cell-desc">Details</div>
+        <div class="txn-amount sortable" data-sort-field="amount">Amount${sortArrow(sort, "amount")}</div>
+      </div>`;
   }
 
   // ---------- Category color/icon mapping ----------
@@ -206,6 +236,22 @@
   }
   document.getElementById("drill-close").addEventListener("click", closeDrilldownScreen);
 
+  // Columns for the bank-drilldown layout (Date | Details | Debit | Credit) —
+  // only Date is sortable here, matching Txns/the general drilldown's scope.
+  function bankDrillColHeaderHtml(sort) {
+    return `
+      <div class="txn-col-hdr">
+        <div class="txn-date sortable" data-sort-field="date">Date${sortArrow(sort, "date")}</div>
+        <div class="txn-cell-desc">Details</div>
+        <div class="txn-num">Debit</div>
+        <div class="txn-num">Credit</div>
+      </div>`;
+  }
+
+  let currentDrillList = null;
+  let currentDrillOpts = null;
+  let currentDrillTotals = null;
+
   function drillToTransactions(opts) {
     const { start, end, label: periodLabel } = getPeriodRange();
     let list = txnsInRange(start, end);
@@ -243,9 +289,24 @@
     amtEl.textContent = amtText;
     amtEl.className = "drill-total " + amtCls;
 
-    list.sort((a, b) => parseISO(b.date) - parseISO(a.date));
+    // Fresh drilldown target — reset sort to the default (newest first).
+    state.drillSort = { field: "date", dir: "desc" };
+    currentDrillList = list;
+    currentDrillOpts = opts;
+    currentDrillTotals = { totalCredit, totalDebit };
+    renderDrillListBody();
+    openDrilldownScreen();
+  }
+
+  // Re-sortable part of the drilldown screen — re-run on every header tap,
+  // without recomputing the filter/totals above.
+  function renderDrillListBody() {
+    const list = currentDrillList, opts = currentDrillOpts;
+    if (!list) return;
+    const { totalCredit, totalDebit } = currentDrillTotals;
+    const sorted = list.slice().sort((a, b) => compareTxns(a, b, state.drillSort));
     const container = document.getElementById("drill-list");
-    if (list.length === 0) {
+    if (sorted.length === 0) {
       container.innerHTML = `<div class="empty-state"><div class="glyph">🔍</div><div>No transactions found.</div></div>`;
     } else if (opts.bank) {
       // Bank drill-down: the bank name is already in the header, so the Bank
@@ -257,29 +318,21 @@
           <div class="txn-cell-desc">Total</div>
           <div class="txn-num dr">${formatINR(totalDebit)}</div>
           <div class="txn-num cr">${formatINR(totalCredit)}</div>
-        </div>
-        <div class="txn-col-hdr">
-          <div class="txn-date">Date</div>
-          <div class="txn-cell-desc">Details</div>
-          <div class="txn-num">Debit</div>
-          <div class="txn-num">Credit</div>
-        </div>` + list.map(txnRowHtmlBankView).join("");
-      container.querySelectorAll("[data-open-edit]").forEach((el) => {
-        el.addEventListener("click", () => openTxnDetail(el.dataset.openEdit));
-      });
+        </div>` + bankDrillColHeaderHtml(state.drillSort) + sorted.map(txnRowHtmlBankView).join("");
     } else {
-      container.innerHTML = `
-        <div class="txn-col-hdr">
-          <div class="txn-date">Date</div>
-          <div class="txn-bank">Bank</div>
-          <div class="txn-cell-desc">Details</div>
-          <div class="txn-amount">Amount</div>
-        </div>` + list.map(txnRowHtml).join("");
-      container.querySelectorAll("[data-open-edit]").forEach((el) => {
-        el.addEventListener("click", () => openTxnDetail(el.dataset.openEdit));
-      });
+      container.innerHTML = txnColHeaderHtml(state.drillSort) + sorted.map(txnRowHtml).join("");
     }
-    openDrilldownScreen();
+    container.querySelectorAll("[data-open-edit]").forEach((el) => {
+      el.addEventListener("click", () => openTxnDetail(el.dataset.openEdit));
+    });
+    container.querySelectorAll("[data-sort-field]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const field = el.dataset.sortField;
+        if (state.drillSort.field === field) state.drillSort.dir = state.drillSort.dir === "asc" ? "desc" : "asc";
+        else { state.drillSort.field = field; state.drillSort.dir = "asc"; }
+        renderDrillListBody();
+      });
+    });
   }
 
   // ================= DASHBOARD =================
@@ -542,14 +595,8 @@
               ${totalsPillHtml(info.credit, info.debit)}
             </div>`;
           if (monthOpen) {
-            info.txns.sort((a, b) => parseISO(b.date) - parseISO(a.date));
-            html += `
-              <div class="txn-col-hdr">
-                <div class="txn-date">Date</div>
-                <div class="txn-bank">Bank</div>
-                <div class="txn-cell-desc">Details</div>
-                <div class="txn-amount">Amount</div>
-              </div>`;
+            info.txns.sort((a, b) => compareTxns(a, b, state.txnSort));
+            html += txnColHeaderHtml(state.txnSort);
             html += info.txns.map(txnRowHtml).join("");
           }
         });
@@ -582,14 +629,8 @@
           ${totalsPillHtml(years[y].credit, years[y].debit)}
         </div>`;
       if (yearOpen) {
-        years[y].txns.sort((a, b) => parseISO(b.date) - parseISO(a.date));
-        html += `
-          <div class="txn-col-hdr">
-            <div class="txn-date">Date</div>
-            <div class="txn-bank">Bank</div>
-            <div class="txn-cell-desc">Details</div>
-            <div class="txn-amount">Amount</div>
-          </div>` + years[y].txns.map(txnRowHtml).join("");
+        years[y].txns.sort((a, b) => compareTxns(a, b, state.txnSort));
+        html += txnColHeaderHtml(state.txnSort) + years[y].txns.map(txnRowHtml).join("");
       }
     });
     return html;
@@ -684,14 +725,8 @@
     let html;
     if (q) {
       // While actively searching, show a flat list so matches are never hidden inside a collapsed section.
-      list.sort((a, b) => parseISO(b.date) - parseISO(a.date));
-      html = `
-        <div class="txn-col-hdr">
-          <div class="txn-date">Date</div>
-          <div class="txn-bank">Bank</div>
-          <div class="txn-cell-desc">Details</div>
-          <div class="txn-amount">Amount</div>
-        </div>` + list.map(txnRowHtml).join("");
+      list.sort((a, b) => compareTxns(a, b, state.txnSort));
+      html = txnColHeaderHtml(state.txnSort) + list.map(txnRowHtml).join("");
     } else if (!state.txnGroupByMonth) {
       // "Group by month" turned off — list year-wise only (useful when a narrow
       // sub-category filter would otherwise leave a month with just one transaction).
@@ -721,6 +756,14 @@
           if (k.split("-")[0] === year) txnExpanded.months.delete(k);
         });
         if (!wasOpen) txnExpanded.months.add(key);
+        renderTransactions();
+      });
+    });
+    container.querySelectorAll("[data-sort-field]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const field = el.dataset.sortField;
+        if (state.txnSort.field === field) state.txnSort.dir = state.txnSort.dir === "asc" ? "desc" : "asc";
+        else { state.txnSort.field = field; state.txnSort.dir = "asc"; }
         renderTransactions();
       });
     });
@@ -794,6 +837,7 @@
     state.txnSearch = "";
     state.txnRangeField = "";
     state.txnGroupByMonth = true;
+    state.txnSort = { field: "date", dir: "desc" };
     document.getElementById("txn-search").value = "";
     document.getElementById("range-field-select").value = "";
     renderRangeInputs();
